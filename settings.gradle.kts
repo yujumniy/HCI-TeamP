@@ -14,6 +14,6 @@ dependencyResolutionManagement {
 }
 
 rootProject.name = "HCI-TeamP"
-include(":mobile") // 갤럭시 폰 앱
+include(":phone")  // 스마트폰 앱 (C1·C2, 실험 관리)
 include(":wear")   // 갤럭시 워치(Wear OS) 앱
-include(":shared")  // 폰·워치 공용 코드 (볼륨 감지, 오버레이)
+include(":shared")  // 공통: 실험 설계·측정 규칙·로그·오디오·통신·시행 UI
