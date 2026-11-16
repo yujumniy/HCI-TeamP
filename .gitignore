@@ -19,3 +19,13 @@ __pycache__/
 .env
 .env.*
 !.env.example
+
+# Android / Gradle
+.gradle/
+local.properties
+*.iml
+captures/
+.externalNativeBuild/
+.cxx/
+*.apk
+*.aab
