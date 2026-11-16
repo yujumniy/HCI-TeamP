@@ -30,7 +30,7 @@ HCI 5팀 프로젝트 저장소입니다.
 ```
 
 ## 개발 환경
-- Android Studio (최신 안정 버전), JDK 17 이상
+- Android Studio 2026.2 이상 (Gradle 9.5, Android Gradle Plugin 9.3, compileSdk 36). Gradle JDK는 Android Studio 기본값(JetBrains Runtime) 그대로 두면 됩니다.
 - 폰 앱: minSdk 26 / 워치 앱: minSdk 30 (Wear OS 3+, 갤럭시 워치4 이후)
 - 폰과 워치 앱은 같은 `applicationId`(`com.hci.teamp`)를 써야 Data Layer로 통신됩니다.
 
