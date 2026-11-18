@@ -25,5 +25,18 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!-- Phase 1 T2: C3 터치 베젤 · C4 슬라이더 검증 화면 (팀원 2). 쓸어서 닫기를 끈 테마 사용 -->
+        <activity
+            android:name=".experiment.input.check.WatchInputCheckActivity"
+            android:exported="true"
+            android:label="C3·C4 입력 검증"
+            android:taskAffinity="com.hci.teamp.wearinputcheck"
+            android:theme="@style/Theme.HciWear.NoSwipe">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
     </application>
 </manifest>
