@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!--
+        C4 슬라이더를 오른쪽으로 끌 때 앱이 닫히지 않도록 '쓸어서 닫기'를 끕니다.
+        나가기는 워치의 뒤로가기 버튼으로 합니다. 실험 시행 화면(팀원 4)도 이 테마를 쓰면 됩니다.
+    -->
+    <style name="Theme.HciWear.NoSwipe" parent="@android:style/Theme.DeviceDefault">
+        <item name="android:windowSwipeToDismiss">false</item>
+    </style>
+</resources>
