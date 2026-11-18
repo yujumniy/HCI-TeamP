@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources xmlns:tools="http://schemas.android.com/tools"
+    tools:keep="@array/android_wear_capabilities">
+    <!-- 스마트폰이 이 이름으로 워치를 찾는다 (SyncPaths.CAP_WATCH) -->
+    <string-array name="android_wear_capabilities">
+        <item>hci_volume_watch</item>
+    </string-array>
+</resources>
