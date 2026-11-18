@@ -8,6 +8,20 @@
 
         <activity android:name=".experiment.ExperimentActivity" android:exported="false" />
 
+        <!-- Phase 1 C1·C2 입력 검증 (팀원 1). 별도 아이콘으로 실행 -->
+        <activity
+            android:name=".experiment.input.check.InputCheckActivity"
+            android:exported="true"
+            android:label="C1·C2 입력 검증"
+            android:screenOrientation="portrait"
+            android:taskAffinity="com.hci.teamp.inputcheck"
+            android:theme="@android:style/Theme.Material.NoActionBar">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
         <activity
             android:name=".MainActivity"
             android:exported="true">
