@@ -86,6 +86,8 @@ class InputCheckActivity : ComponentActivity() {
     private var lastRecord by mutableStateOf<TrialRecord?>(null)
     private var lastStats by mutableStateOf<TrialStats?>(null)
     private var lastMoves by mutableIntStateOf(0)
+    private var notReadyHint by mutableStateOf(false)
+    private val hideHint = Runnable { notReadyHint = false }
     private val moves = MoveCounter()
     private var startedAt = 0L
     private var firstInputAt: Long? = null
@@ -176,6 +178,7 @@ class InputCheckActivity : ComponentActivity() {
         phase = c.phase
         log.note(a.id, "COUNTDOWN", SystemClock.elapsedRealtime(), null, "task=${task.id}")
         countdownStartedAt = SystemClock.elapsedRealtime()
+        notReadyHint = false
         countdown = 3
         handler.postDelayed(::tick, 1000)
     }
@@ -204,10 +207,13 @@ class InputCheckActivity : ComponentActivity() {
 
     private fun onRaw(r: com.hci.teamp.experiment.input.RawInput) {
         log.raw(r)
-        lastInput = if (r.kind == com.hci.teamp.experiment.input.RawInput.Kind.IGNORED && r.detail == "not_active") {
-            "먼저 '준비'를 눌러 시작하세요"
-        } else {
-            "${r.source} ${r.kind}"
+        val notActive = r.kind == com.hci.teamp.experiment.input.RawInput.Kind.IGNORED && r.detail.startsWith("not_active")
+        lastInput = if (notActive) "먼저 '준비'를 눌러 시작하세요" else "${r.source} ${r.kind}"
+        if (notActive) {
+            // 시행 화면 가운데에 2초간 크게 안내
+            notReadyHint = true
+            handler.removeCallbacks(hideHint)
+            handler.postDelayed(hideHint, 2000)
         }
         if (phase != TrialPhase.ACTIVE || r.attemptId != attempt?.id) return
         when (r.kind) {
@@ -390,6 +396,15 @@ class InputCheckActivity : ComponentActivity() {
             } else {
                 slider.Content(Modifier.fillMaxWidth())
             }
+            Spacer(Modifier.height(16.dp))
+            // 자리를 미리 잡아 두어 안내가 나타나도 화면이 흔들리지 않게 함
+            Text(
+                if (notReadyHint && phase != TrialPhase.ACTIVE && phase != TrialPhase.COUNTDOWN) "먼저 '준비'를 눌러 시작하세요" else "",
+                color = Color(0xFFFFC857),
+                fontSize = 18.sp,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.height(28.dp),
+            )
             Spacer(Modifier.weight(1.5f))
             Button(
                 onClick = { finish(Outcome.COMPLETED) },

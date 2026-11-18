@@ -83,6 +83,9 @@ class PhoneVolumeSlider(
 
     internal fun onThumbUp(x: Float) = raw(RawInput.Kind.UP, "x=%.1f".format(x))
 
+    /** 시행 전(준비 전)에 슬라이더를 만진 경우: 값은 그대로, 원시 기록만 */
+    internal fun onInactiveTouch(x: Float) = raw(RawInput.Kind.IGNORED, "not_active;x=%.1f".format(x))
+
     internal fun onTrackTap(x: Float) {
         if (attempt == null) return
         trackTapBlocked++
@@ -159,8 +162,11 @@ private fun SliderView(slider: PhoneVolumeSlider, style: SliderStyle, modifier: 
                 .pointerInput(widthPx) {
                     awaitEachGesture {
                         val down = awaitFirstDown(requireUnconsumed = false)
+                        if (!slider.isActive) {
+                            slider.onInactiveTouch(down.position.x)
+                            return@awaitEachGesture
+                        }
                         val v = current ?: return@awaitEachGesture
-                        if (!slider.isActive) return@awaitEachGesture
                         val thumbX = SliderMath.thumbX(v, left, right)
                         if (!SliderMath.hitsThumb(down.position.x, thumbX, touchPx)) {
                             slider.onTrackTap(down.position.x)
