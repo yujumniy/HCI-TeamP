@@ -169,9 +169,16 @@ private fun SliderView(slider: PhoneVolumeSlider, style: SliderStyle, modifier: 
                         down.consume()
                         val grabOffset = down.position.x - thumbX
                         slider.onThumbDown(down.position.x)
+                        var lastX = down.position.x
                         while (true) {
                             val event = awaitPointerEvent()
-                            val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                            val change = event.changes.firstOrNull { it.id == down.id }
+                            if (change == null) {
+                                // 제스처가 취소된 경우에도 '뗌'을 기록해 조작 1회를 마무리합니다.
+                                slider.onThumbUp(lastX)
+                                break
+                            }
+                            lastX = change.position.x
                             if (!change.pressed) {
                                 slider.onThumbUp(change.position.x)
                                 break

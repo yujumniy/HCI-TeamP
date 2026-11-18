@@ -84,6 +84,12 @@ class InputCheckActivity : ComponentActivity() {
     private var current by mutableStateOf<VirtualVolume?>(null)
     private var lastInput by mutableStateOf("-")
     private var lastRecord by mutableStateOf<TrialRecord?>(null)
+    private var lastStats by mutableStateOf<TrialStats?>(null)
+    private var lastMoves by mutableIntStateOf(0)
+    private val moves = MoveCounter()
+    private var startedAt = 0L
+    private var firstInputAt: Long? = null
+    private var trackTapsAtStart = 0
     private var attemptNo by mutableIntStateOf(0)
     private var systemVolume by mutableStateOf("" to true)
     private var exportMessage by mutableStateOf("")
@@ -103,8 +109,8 @@ class InputCheckActivity : ComponentActivity() {
         audio = getSystemService(AudioManager::class.java)
         baseline = readSystemVolume()
         checkSystemVolume("baseline")
-        keys.rawListener = { log.raw(it); lastInput = "${it.source} ${it.kind}" }
-        slider.rawListener = { log.raw(it); lastInput = "${it.source} ${it.kind}" }
+        keys.rawListener = ::onRaw
+        slider.rawListener = ::onRaw
         slider.preview(task.start)
         setContent { MaterialTheme(colorScheme = darkColorScheme()) { Screen() } }
     }
@@ -163,6 +169,7 @@ class InputCheckActivity : ComponentActivity() {
         attempt = a
         controller = c
         lastRecord = null
+        lastStats = null
         current = null // 카운트다운 중에는 시작값·목표값 숨김 (명세 5.2)
         slider.preview(null)
         c.startCountdown()
@@ -180,6 +187,10 @@ class InputCheckActivity : ComponentActivity() {
             val a = attempt!!
             phase = c.phase
             current = a.task.start
+            startedAt = SystemClock.elapsedRealtime()
+            firstInputAt = null
+            moves.reset()
+            trackTapsAtStart = slider.trackTapBlocked
             log.note(a.id, "START", SystemClock.elapsedRealtime(), a.task.start.percent,
                 "start=${a.task.start.percent};target=${a.task.target.percent}")
             input.start(a, ::onInput)
@@ -191,10 +202,31 @@ class InputCheckActivity : ComponentActivity() {
         handler.postDelayed(::tick, remaining.coerceIn(10, 1000))
     }
 
+    private fun onRaw(r: com.hci.teamp.experiment.input.RawInput) {
+        log.raw(r)
+        lastInput = if (r.kind == com.hci.teamp.experiment.input.RawInput.Kind.IGNORED && r.detail == "not_active") {
+            "먼저 '준비'를 눌러 시작하세요"
+        } else {
+            "${r.source} ${r.kind}"
+        }
+        if (phase != TrialPhase.ACTIVE || r.attemptId != attempt?.id) return
+        when (r.kind) {
+            com.hci.teamp.experiment.input.RawInput.Kind.DOWN -> {
+                if (firstInputAt == null) firstInputAt = r.elapsedRealtimeMs
+                moves.down()
+            }
+            com.hci.teamp.experiment.input.RawInput.Kind.UP -> moves.up()
+            else -> Unit
+        }
+    }
+
     private fun onInput(e: InputEvent) {
         val accepted = controller?.record(e) == true
         log.value(e, if (condition == Condition.C1) "C1_BUTTON" else "C2_SLIDER", accepted)
-        if (accepted) current = e.current
+        if (accepted) {
+            current = e.current
+            moves.valueChanged()
+        }
         lastInput = "${e.previous.percent} → ${e.current.percent}" + if (accepted) "" else " (거부됨)"
     }
 
@@ -212,10 +244,32 @@ class InputCheckActivity : ComponentActivity() {
         val record = c.finish(outcome) ?: return
         handler.removeCallbacksAndMessages(null)
         input.stop()
+        moves.close()
         phase = c.phase
+        val r = record.result
+        val stats = TrialStats.fromEvents(r.attempt.task.start.percent, r.attempt.task.target.percent, record.events)
         lastRecord = record
-        log.note(record.result.attempt.id, record.result.outcome.name, SystemClock.elapsedRealtime(),
-            record.result.finalValue.percent, "duration_ms=${record.result.durationMs};events=${record.events.size}")
+        lastStats = stats
+        lastMoves = moves.moves
+        log.note(r.attempt.id, r.outcome.name, SystemClock.elapsedRealtime(), r.finalValue.percent,
+            "duration_ms=${r.durationMs};moves=${moves.moves};value_changes=${stats.valueChanges};" +
+                "max_overshoot=${stats.maxOvershoot};overshoot_count=${stats.overshootCount}")
+        log.trial(
+            InputCheckLog.TrialRow(
+                attemptId = r.attempt.id,
+                condition = r.attempt.condition.name,
+                taskId = r.attempt.task.id,
+                start = r.attempt.task.start.percent,
+                target = r.attempt.task.target.percent,
+                outcome = r.outcome.name,
+                durationMs = r.durationMs,
+                firstInputMs = firstInputAt?.let { it - startedAt },
+                stats = stats,
+                moves = moves.moves,
+                touchesWithoutChange = moves.touchesWithoutChange,
+                trackTapBlocked = if (r.attempt.condition == Condition.C2) slider.trackTapBlocked - trackTapsAtStart else 0,
+            ),
+        )
     }
 
     private fun selectCondition(c: Condition) {
@@ -223,6 +277,7 @@ class InputCheckActivity : ComponentActivity() {
         condition = c
         phase = TrialPhase.READY
         lastRecord = null
+        lastStats = null
         current = task.start
         slider.preview(task.start)
     }
@@ -232,6 +287,7 @@ class InputCheckActivity : ComponentActivity() {
         taskIndex = (taskIndex + 1) % CHECK_TASKS.size
         phase = TrialPhase.READY
         lastRecord = null
+        lastStats = null
         current = task.start
         slider.preview(task.start)
     }
@@ -273,10 +329,19 @@ class InputCheckActivity : ComponentActivity() {
                     }
                 }
                 Info("상태 ${phase.name} · 마지막 입력 $lastInput")
-                lastRecord?.let { r ->
+                val rec = lastRecord
+                val st = lastStats
+                if (rec != null && st != null) {
+                    val r = rec.result
                     Info(
-                        "결과 ${r.result.outcome} · %.2f초 · 최종 ${r.result.finalValue.percent} (목표 ${r.result.attempt.task.target.percent}) · 값 변경 ${r.events.size}회"
-                            .format(r.result.durationMs / 1000f),
+                        "결과 ${r.outcome} · %.2f초 · 최종 ${st.finalValue} (목표 ${r.attempt.task.target.percent}, 오차 ${st.absError})"
+                            .format(r.durationMs / 1000f),
+                        Color.White,
+                    )
+                    Info(
+                        "조작 ${lastMoves}회 · 칸 이동 ${st.valueChanges}칸 · " +
+                            "오버슈팅 최대 ${st.maxOvershoot} / 초과 진입 ${st.overshootCount}회",
+                        Color.White,
                     )
                 }
                 val (sys, unchanged) = systemVolume
@@ -293,9 +358,9 @@ class InputCheckActivity : ComponentActivity() {
                     CheckRow("C2-트랙탭차단")
                 }
                 TextButton(onClick = {
-                    exportMessage = runCatching { "저장됨: " + log.export(this@InputCheckActivity) }
+                    exportMessage = runCatching { "저장됨:\n" + log.export(this@InputCheckActivity).joinToString("\n") }
                         .getOrElse { "저장 실패: ${it.message}" }
-                }) { Text("CSV 내보내기 (${log.size}행)") }
+                }) { Text("CSV 내보내기 (시행 ${log.trialCount}회 · 이벤트 ${log.size}행)") }
                 if (exportMessage.isNotEmpty()) Info(exportMessage)
             }
         }
