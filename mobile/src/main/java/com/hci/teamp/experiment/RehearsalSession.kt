@@ -4,6 +4,9 @@ import com.hci.teamp.shared.experiment.Attempt
 import com.hci.teamp.shared.experiment.CONDITION_REST_MS
 import com.hci.teamp.shared.experiment.COUNTDOWN_MS
 import com.hci.teamp.shared.experiment.ExperimentDevice
+import com.hci.teamp.shared.experiment.ExperimentInput
+import com.hci.teamp.shared.experiment.Condition
+import com.hci.teamp.experiment.input.RawInput
 import com.hci.teamp.shared.experiment.InputEvent
 import com.hci.teamp.shared.experiment.Outcome
 import com.hci.teamp.shared.experiment.ParticipantId
@@ -20,6 +23,7 @@ internal enum class RehearsalPhase { INSTRUCTIONS, READY, COUNTDOWN, ACTIVE, RES
 internal class RehearsalSession(
     private val participant: ParticipantId,
     private val audio: ExperimentAudio,
+    private val inputFor: (Condition) -> ExperimentInput,
     private val nowMs: () -> Long,
 ) {
     private val schedule = ExperimentSchedule()
@@ -40,6 +44,12 @@ internal class RehearsalSession(
     private var trial = newController()
     private var deadline = 0L
     private val records = mutableListOf<TrialRecord>()
+    private val rawInputs = mutableListOf<RawInput>()
+    private var activeInput: ExperimentInput? = null
+
+    fun recordRaw(input: RawInput) {
+        if (phase == RehearsalPhase.ACTIVE && input.attemptId == attempt.id) rawInputs.add(input)
+    }
 
     var phase = RehearsalPhase.INSTRUCTIONS
         private set
@@ -75,16 +85,15 @@ internal class RehearsalSession(
         if (phase == RehearsalPhase.COUNTDOWN && trial.activate()) {
             phase = RehearsalPhase.ACTIVE
             audio.start(value)
+            activeInput = inputFor(condition).also { it.start(attempt, ::recordInput) }
         }
         if (phase == RehearsalPhase.ACTIVE) finish(Outcome.TIMEOUT)
     }
 
-    fun adjust(delta: Int) {
+    private fun recordInput(event: InputEvent) {
         if (phase != RehearsalPhase.ACTIVE) return
-        val next = VirtualVolume((value.percent + delta).coerceIn(0, 100))
-        if (next == value) return
-        if (trial.record(InputEvent(attempt.id, ExperimentDevice.PHONE, nowMs(), value, next))) {
-            value = next
+        if (trial.record(event)) {
+            value = event.current
             audio.setVolume(value)
         } else {
             finish(Outcome.TIMEOUT)
@@ -107,6 +116,8 @@ internal class RehearsalSession(
     private fun finish(outcome: Outcome) {
         if (phase != RehearsalPhase.ACTIVE) return
         val record = trial.finish(outcome) ?: return
+        activeInput?.stop()
+        activeInput = null
         records.add(record)
         phase = RehearsalPhase.RESULT
         audio.stop()

@@ -1,12 +1,15 @@
 package com.hci.teamp.experiment
 
 import android.os.Bundle
+import android.view.KeyEvent
+import android.util.Log
+import com.hci.teamp.experiment.input.PhoneVolumeKeys
+import com.hci.teamp.experiment.input.PhoneVolumeSlider
 import android.os.SystemClock
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -16,7 +19,6 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -29,6 +31,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import com.hci.teamp.experiment.input.PhoneVolumeKeys
+import com.hci.teamp.experiment.input.PhoneVolumeSlider
+import com.hci.teamp.experiment.input.RawInput
 import com.hci.teamp.shared.experiment.Condition
 import com.hci.teamp.shared.experiment.Outcome
 import com.hci.teamp.shared.experiment.ParticipantId
@@ -40,10 +45,29 @@ class ExperimentActivity : ComponentActivity() {
     private var invalidId by mutableStateOf(false)
     private var refresh by mutableIntStateOf(0)
     private var audio: RingtoneAudio? = null
+    private val keys = PhoneVolumeKeys()
+    private val slider = PhoneVolumeSlider()
+
+    override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean =
+        keys.onKeyEvent(event) || super.onKeyDown(keyCode, event)
+
+    override fun onKeyUp(keyCode: Int, event: KeyEvent): Boolean =
+        keys.onKeyEvent(event) || super.onKeyUp(keyCode, event)
+
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        if (!hasFocus) keys.cancelHold("focus_lost")
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         audio = RingtoneAudio.prepare(this)
+        val rawListener: (RawInput) -> Unit = { input ->
+            session?.recordRaw(input)
+            Log.d("ExperimentInput", input.toString())
+        }
+        keys.rawListener = rawListener
+        slider.rawListener = rawListener
         setContent {
             MaterialTheme {
                 Surface(Modifier.fillMaxSize()) {
@@ -67,6 +91,8 @@ class ExperimentActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
+        keys.stop()
+        slider.stop()
         audio?.release()
         super.onDestroy()
     }
@@ -74,7 +100,7 @@ class ExperimentActivity : ComponentActivity() {
     @Composable
     private fun ParticipantForm() {
         Text("실험 흐름 리허설", style = MaterialTheme.typography.headlineSmall)
-        Text("v1 과제로 폰 화면을 점검합니다. C1·C2 모두 화면 버튼을 사용하며, 결과는 실험 데이터로 저장하지 않습니다.")
+        Text("v1 과제로 폰 입력을 점검합니다. C1은 물리 음량 버튼, C2는 슬라이더를 사용합니다. 결과는 실험 데이터로 저장하지 않습니다.")
         if (audio == null) {
             Text("벨소리를 준비하지 못했습니다. 화면을 다시 열어 주세요.")
             return
@@ -100,7 +126,17 @@ class ExperimentActivity : ComponentActivity() {
             invalidId = true
             return
         }
-        session = RehearsalSession(id, player, SystemClock::elapsedRealtime)
+        session = RehearsalSession(
+            id, player,
+            inputFor = { condition ->
+                when (condition) {
+                    Condition.C1 -> keys
+                    Condition.C2 -> slider
+                    else -> error("Phone session received a watch condition")
+                }
+            },
+            nowMs = SystemClock::elapsedRealtime,
+        )
     }
 
     @Composable
@@ -120,7 +156,7 @@ class ExperimentActivity : ComponentActivity() {
                 val method = if (current.condition == Condition.C1) "물리 음량 버튼" else "슬라이더 손잡이"
                 Text("전체 조건 순서  ${current.conditions.joinToString(" → ")}")
                 Text("${current.condition} · 실제 입력 방식은 ${method}입니다.")
-                Text("리허설에서는 화면의 −5와 +5 버튼으로 조절합니다.")
+                Text("목표 음량으로 조절한 뒤 완료를 누르세요.")
                 NextButton(current, "연습 시작")
             }
             RehearsalPhase.READY -> {
@@ -134,14 +170,14 @@ class ExperimentActivity : ComponentActivity() {
             RehearsalPhase.COUNTDOWN -> Text("시작까지 ${seconds(current.remainingMs())}초")
             RehearsalPhase.ACTIVE -> {
                 Text("목표 ${current.target.percent}% · 현재 ${current.value.percent}%")
-                val volumeProgress = current.value.percent / 100f
-                LinearProgressIndicator(
-                    progress = { volumeProgress },
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    OutlinedButton(onClick = { adjust(current, -5) }) { Text("−5") }
-                    OutlinedButton(onClick = { adjust(current, 5) }) { Text("+5") }
+                if (current.condition == Condition.C2) {
+                    slider.Content(Modifier.fillMaxWidth())
+                } else {
+                    val volumeProgress = current.value.percent / 100f
+                    LinearProgressIndicator(
+                        progress = { volumeProgress },
+                        modifier = Modifier.fillMaxWidth(),
+                    )
                 }
                 Button(onClick = {
                     current.submit()
@@ -176,11 +212,6 @@ class ExperimentActivity : ComponentActivity() {
                 Button(onClick = { session = null }) { Text("처음으로") }
             }
         }
-    }
-
-    private fun adjust(current: RehearsalSession, delta: Int) {
-        current.adjust(delta)
-        refresh++
     }
 
     @Composable
