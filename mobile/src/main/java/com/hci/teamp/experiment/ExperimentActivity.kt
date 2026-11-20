@@ -31,8 +31,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import com.hci.teamp.experiment.input.PhoneVolumeKeys
-import com.hci.teamp.experiment.input.PhoneVolumeSlider
 import com.hci.teamp.experiment.input.RawInput
 import com.hci.teamp.shared.experiment.Condition
 import com.hci.teamp.shared.experiment.Outcome
