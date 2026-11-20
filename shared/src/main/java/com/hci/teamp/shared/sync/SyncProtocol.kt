@@ -60,6 +60,8 @@ data class WatchStatus(
     val tooLargeCount: Int,
     val inProgressAttemptId: String?,
     val lastSyncedAttemptId: String?,
+    /** 스마트폰이 거부한(해시 불일치 등) 기록 수. 구버전과 호환되도록 기본값 0 */
+    val rejectedCount: Int = 0,
 )
 
 /** 워치 → 스마트폰 업로드. contentHash 로 동일 ID·동일 내용 여부를 판정한다. */

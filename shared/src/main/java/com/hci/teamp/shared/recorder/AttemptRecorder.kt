@@ -2,7 +2,6 @@ package com.hci.teamp.shared.recorder
 
 import android.os.Build
 import android.os.SystemClock
-import android.util.Log
 import com.hci.teamp.shared.db.ExperimentRepository
 import com.hci.teamp.shared.metrics.TrialMetrics
 import com.hci.teamp.shared.model.AttemptRecord
@@ -19,7 +18,9 @@ import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.launch
+import com.hci.teamp.shared.util.HciLog
 
 /** 시행 기기의 단조 증가 시계(명세서 10.2). 통신 시간은 절대 포함되지 않는다. */
 interface MonotonicClock {
@@ -35,6 +36,8 @@ object AndroidMonotonicClock : MonotonicClock {
 /** 기록기가 결과를 넘기는 저장 대상. 스마트폰/워치가 각자 구현을 고른다. */
 interface AttemptStore {
     suspend fun begin(partial: AttemptRecord, deviceType: DeviceType)
+    /** 시행 중 이벤트 1건 영구 저장 (START 이후, 종료 전) */
+    suspend fun appendEvent(event: TrialEvent)
     suspend fun finalize(record: AttemptRecord, deviceType: DeviceType): SaveOutcome
 }
 
@@ -42,6 +45,10 @@ interface AttemptStore {
 open class RepositoryAttemptStore(protected val repo: ExperimentRepository) : AttemptStore {
     override suspend fun begin(partial: AttemptRecord, deviceType: DeviceType) =
         repo.beginLocalAttempt(partial, deviceType)
+
+    override suspend fun appendEvent(event: TrialEvent) {
+        repo.appendLocalEvent(event)
+    }
 
     override suspend fun finalize(record: AttemptRecord, deviceType: DeviceType): SaveOutcome =
         repo.finalizeLocalAttempt(record, deviceType)
@@ -65,6 +72,9 @@ open class RepositoryAttemptStore(protected val repo: ExperimentRepository) : At
  * 규칙
  *  - 모든 메서드는 메인 스레드에서 호출해도 된다. 시각은 호출 즉시 단조 시계로 찍고,
  *    DB 저장은 백그라운드에서 수행하므로 측정 시간에 저장·통신 시간이 섞이지 않는다.
+ *  - 저장은 단일 순서 큐로 처리한다: START → 각 이벤트(관찰 순서대로 즉시) → 종료.
+ *    시행 중 앱이 강제 종료돼도 그때까지 큐에서 처리된 이벤트는 DB 에 남고,
+ *    다음 실행 시 ExperimentRepository.invalidateInterruptedAttempts() 가 그 이벤트로 INVALID 기록을 만든다.
  *  - 값을 보정하거나 중간값을 생성하지 않는다. 전달된 값을 그대로 기록한다(범위 위반은 무결성 검사에서 표시).
  *  - 종료 후 들어온 이벤트는 기록하지 않고 Logcat 경고만 남긴다.
  */
@@ -82,9 +92,21 @@ class AttemptRecorder(
     private var startWallMs = 0L
     private var currentValue = config.startVolume
     private var finished = false
-    private var beginJob: Job? = null
     private var ignoredLateEvents = 0
     private val result = CompletableDeferred<SaveOutcome>()
+
+    /** 저장 작업 순서 큐 (단일 소비자 → 관찰 순서 = 저장 순서) */
+    private val persistQueue = Channel<suspend () -> Unit>(Channel.UNLIMITED)
+    private val persistJob: Job = scope.launch {
+        for (task in persistQueue) {
+            try {
+                task()
+            } catch (t: Throwable) {
+                // 개별 이벤트 저장 실패는 종료 시 finalize 가 누락분을 다시 넣는다
+                HciLog.e(TAG, "persist task failed (${config.attemptId})", t)
+            }
+        }
+    }
 
     val isStarted: Boolean get() = synchronized(lock) { startNs >= 0 }
     val isFinished: Boolean get() = synchronized(lock) { finished }
@@ -99,13 +121,12 @@ class AttemptRecorder(
 
     /** 시행 시작(START). 반환값은 시작 시각(ns, elapsedRealtimeNanos) — 4번 타이머가 같은 기준을 쓰도록. */
     fun start(): Long {
-        val partial: AttemptRecord
         synchronized(lock) {
             check(startNs < 0) { "start() called twice for ${config.attemptId}" }
             startNs = clock.nowNs()
             startWallMs = clock.wallMs()
             events += TrialEvent(config.attemptId, 0, EventType.START, 0L, startWallMs, config.startVolume)
-            partial = AttemptRecord(
+            val partial = AttemptRecord(
                 result = TrialResult(
                     config = config,
                     deviceType = deviceType,
@@ -118,15 +139,9 @@ class AttemptRecorder(
                 ),
                 events = listOf(events[0]),
             )
+            persistQueue.trySend { store.begin(partial, deviceType) }
+            return startNs
         }
-        beginJob = scope.launch {
-            try {
-                store.begin(partial, deviceType)
-            } catch (t: Throwable) {
-                Log.e(TAG, "begin persist failed for ${config.attemptId}", t)
-            }
-        }
-        return startNs
     }
 
     fun inputDown(raw: Map<String, String> = emptyMap()) = append(EventType.INPUT_DOWN, null, raw)
@@ -157,18 +172,20 @@ class AttemptRecorder(
         val wall = clock.wallMs()
         synchronized(lock) {
             if (startNs < 0) {
-                Log.w(TAG, "$type before START ignored (${config.attemptId})")
+                HciLog.w(TAG, "$type before START ignored (${config.attemptId})")
                 return false
             }
             if (finished) {
                 ignoredLateEvents++
-                Log.w(TAG, "$type after end ignored (${config.attemptId}) count=$ignoredLateEvents")
+                HciLog.w(TAG, "$type after end ignored (${config.attemptId}) count=$ignoredLateEvents")
                 return false
             }
             if (value != null && (value !in 0..100 || value % 5 != 0)) {
-                Log.e(TAG, "VALUE_CHANGE out of rule: $value (${config.attemptId}) — recorded as-is")
+                HciLog.e(TAG, "VALUE_CHANGE out of rule: $value (${config.attemptId}) — recorded as-is")
             }
-            events += TrialEvent(config.attemptId, events.size, type, now - startNs, wall, value, raw)
+            val event = TrialEvent(config.attemptId, events.size, type, now - startNs, wall, value, raw)
+            events += event
+            persistQueue.trySend { store.appendEvent(event) } // 잠금 안에서 넣어 seq 순서 보장
             return true
         }
     }
@@ -179,7 +196,7 @@ class AttemptRecorder(
         val record: AttemptRecord
         synchronized(lock) {
             if (finished) {
-                Log.w(TAG, "finish($status) ignored: already finished (${config.attemptId})")
+                HciLog.w(TAG, "finish($status) ignored: already finished (${config.attemptId})")
                 return result
             }
             check(startNs >= 0) { "finish() before start() for ${config.attemptId}" }
@@ -202,15 +219,15 @@ class AttemptRecorder(
                 ),
                 events = snapshot,
             )
-        }
-        scope.launch {
-            try {
-                beginJob?.join()
-                result.complete(store.finalize(record, deviceType))
-            } catch (t: Throwable) {
-                Log.e(TAG, "finalize persist failed for ${config.attemptId}", t)
-                result.completeExceptionally(t)
+            persistQueue.trySend {
+                try {
+                    result.complete(store.finalize(record, deviceType))
+                } catch (t: Throwable) {
+                    HciLog.e(TAG, "finalize persist failed for ${config.attemptId}", t)
+                    result.completeExceptionally(t)
+                }
             }
+            persistQueue.close() // 종료 후에는 더 이상 저장 작업 없음
         }
         return result
     }

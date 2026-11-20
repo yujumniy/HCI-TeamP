@@ -20,6 +20,7 @@ import com.hci.teamp.shared.sync.ResultAck
 import com.hci.teamp.shared.sync.StatusRequest
 import com.hci.teamp.shared.sync.SyncCodec
 import com.hci.teamp.shared.sync.SyncPaths
+import com.hci.teamp.shared.sync.SyncPolicies
 import com.hci.teamp.shared.sync.WatchStatus
 import com.hci.teamp.shared.sync.WearMessenger
 import kotlinx.coroutines.CoroutineScope
@@ -67,7 +68,11 @@ class WearSyncManager private constructor(context: Context) {
     val pendingConfig: Flow<TrialConfig?> =
         repo.dao.observeLatestUnstartedConfig().map { e -> e?.let { SyncCodec.json.decodeFromString(TrialConfig.serializer(), it.configJson) } }
 
-    val pendingUploadCount: Flow<Int> = repo.dao.observeCountBySyncState(SyncState.PENDING.name)
+    /** 종료됐지만 아직 스마트폰 저장 확인을 못 받은 기록 수 (진행 중 시도는 포함하지 않음) */
+    val pendingUploadCount: Flow<Int> = repo.dao.observeCountUploadable()
+
+    /** 스마트폰이 거부한(해시 불일치 등) 기록 수 — 자동 재전송하지 않음, 관리자 확인 필요 */
+    val rejectedUploadCount: Flow<Int> = repo.dao.observeCountBySyncState(SyncState.UPLOAD_REJECTED.name)
 
     /** 워치 시행용 저장소: 로컬 커밋 후 곧바로 스마트폰 전송을 시도한다. */
     private val store = object : RepositoryAttemptStore(repo) {
@@ -97,7 +102,18 @@ class WearSyncManager private constructor(context: Context) {
 
     // ------------------------------------------------------------------ 업로드
 
-    /** PENDING 기록 전체를 전송. ACK 는 비동기로 onResultAck 에서 처리된다. */
+    /**
+     * 관리자가 거부 원인(앱 버전 불일치 등)을 해결한 뒤 수동으로 재전송할 때 호출.
+     * 기록 내용은 바꾸지 않고 전송 상태만 PENDING 으로 되돌린다.
+     */
+    suspend fun requeueRejectedUploads(): Int {
+        val n = repo.dao.requeueRejectedUploads()
+        repo.log("REJECTED_REQUEUED", null, "count=$n")
+        if (n > 0) { flushPending(); ensureRetryLoop() }
+        return n
+    }
+
+    /** 종료된 PENDING 기록만 전송 (진행 중 시도는 제외). ACK 는 비동기로 onResultAck 에서 처리된다. */
     suspend fun flushPending() = flushMutex.withLock {
         val pending = repo.pendingUploads()
         if (pending.isEmpty()) return@withLock
@@ -131,7 +147,7 @@ class WearSyncManager private constructor(context: Context) {
             var waitMs = 2_000L
             while (isActive) {
                 delay(waitMs)
-                if (repo.dao.countBySyncState(SyncState.PENDING.name) == 0) break
+                if (repo.dao.countUploadable() == 0) break
                 flushPending()
                 waitMs = (waitMs * 2).coerceAtMost(30_000L)
             }
@@ -142,14 +158,12 @@ class WearSyncManager private constructor(context: Context) {
         val local = repo.dao.attempt(ack.attemptId) ?: run {
             repo.log("ACK_UNKNOWN_ATTEMPT", ack.attemptId, ack.outcome.name); return
         }
-        val newState = when {
-            !ack.persisted -> null
-            ack.receivedHash != local.contentHash -> SyncState.CONFLICT
-            ack.outcome == SaveOutcome.SAVED || ack.outcome == SaveOutcome.DUPLICATE -> SyncState.SYNCED
-            else -> SyncState.CONFLICT
-        }
+        val newState = SyncPolicies.watchStateAfterAck(local.endStatus, local.contentHash, ack)
         if (newState != null) repo.dao.setSyncState(ack.attemptId, newState.name)
-        repo.log("RESULT_ACK_${ack.outcome}", ack.attemptId, "state=$newState hashMatch=${ack.receivedHash == local.contentHash}")
+        repo.log(
+            "RESULT_ACK_${ack.outcome}", ack.attemptId,
+            "state=$newState hashMatch=${ack.receivedHash == local.contentHash} localStatus=${local.endStatus}",
+        )
     }
 
     // ------------------------------------------------------------------ 설정 수신
@@ -177,7 +191,7 @@ class WearSyncManager private constructor(context: Context) {
         repo.dao.inProgressAttempts().firstOrNull()?.let {
             return@withLock ConfigAck(config.attemptId, ConfigAckStatus.REJECTED_IN_PROGRESS, it.attemptId)
         }
-        val pending = repo.dao.countBySyncState(SyncState.PENDING.name)
+        val pending = repo.dao.countUploadable()
         if (pending > 0) {
             scope.launch { flushPending() }
             return@withLock ConfigAck(config.attemptId, ConfigAckStatus.REJECTED_PENDING_SYNC, "pending=$pending")
@@ -189,11 +203,12 @@ class WearSyncManager private constructor(context: Context) {
 
     private suspend fun status(req: StatusRequest): WatchStatus = WatchStatus(
         requestId = req.requestId,
-        pendingCount = repo.dao.countBySyncState(SyncState.PENDING.name),
+        pendingCount = repo.dao.countUploadable(),
         conflictCount = repo.dao.countBySyncState(SyncState.CONFLICT.name),
         tooLargeCount = repo.dao.countBySyncState(SyncState.TOO_LARGE.name),
         inProgressAttemptId = repo.dao.inProgressAttempts().firstOrNull()?.attemptId,
         lastSyncedAttemptId = repo.dao.lastSyncedAttemptId(),
+        rejectedCount = repo.dao.countBySyncState(SyncState.UPLOAD_REJECTED.name),
     )
 
     // ------------------------------------------------------------------ 수신 라우팅 (WearSyncService 에서 호출)

@@ -125,3 +125,23 @@ data class BackupLogEntity(
     val error: String?,
     val wallMs: Long,
 )
+
+/**
+ * 정상 수신으로 처리하지 않은 워치 업로드 (해시 불일치, 진행 중 기록 등).
+ * attempts 테이블에는 저장하지 않고, 받은 내용을 그대로 보존해 관리자가 검토한다.
+ * errorType: HASH_MISMATCH / IN_PROGRESS_RECEIVED / IN_PROGRESS_SUPERSEDED
+ */
+@Entity(tableName = "receive_errors", indices = [Index("attemptId")])
+data class ReceiveErrorEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val attemptId: String,
+    val errorType: String,
+    val sentHash: String,
+    val computedHash: String,
+    val endStatus: String,
+    val payloadJson: String,
+    val source: String,
+    val detectedAtWallMs: Long,
+    val resolved: Boolean = false,
+    val resolutionNote: String? = null,
+)

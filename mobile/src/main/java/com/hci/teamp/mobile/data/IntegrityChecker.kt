@@ -126,6 +126,9 @@ class IntegrityChecker(private val repo: ExperimentRepository) {
         // 9. 미해결 DATA_CONFLICT
         dao.unresolvedConflicts().filter { it.attemptId.startsWith("$participantId-") }
             .forEach { add(9, "ERROR", "미해결 DATA_CONFLICT (incoming ${it.incomingHash.take(12)})", att = it.attemptId) }
+        // 9-2. 정상 수신 처리하지 않은 워치 업로드 (해시 불일치, 진행 중 기록)
+        dao.unresolvedReceiveErrors().filter { it.attemptId.startsWith("$participantId-") }
+            .forEach { add(9, "ERROR", "미해결 수신 오류 ${it.errorType} (sent ${it.sentHash.take(12)} / computed ${it.computedHash.take(12)})", att = it.attemptId) }
 
         repo.log("INTEGRITY_CHECK", null, "$participantId issues=${issues.size} passed=${issues.none { it.severity == "ERROR" }}")
         return Report(participantId, issues)

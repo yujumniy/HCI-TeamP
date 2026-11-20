@@ -70,12 +70,32 @@ interface ExperimentDao {
     @Query("UPDATE attempts SET lastSyncAttemptWallMs = :wallMs, syncAttempts = syncAttempts + 1 WHERE attemptId = :id")
     suspend fun markSyncTried(id: String, wallMs: Long)
 
+    /** 전송 대상: PENDING 이면서 종료된 시도만 (SyncPolicies.isUploadable 과 같은 조건) */
+    @Query("SELECT * FROM attempts WHERE syncState = 'PENDING' AND endStatus != 'IN_PROGRESS' ORDER BY startWallMs")
+    suspend fun uploadableAttempts(): List<AttemptEntity>
+
+    @Query("SELECT COUNT(*) FROM attempts WHERE syncState = 'PENDING' AND endStatus != 'IN_PROGRESS'")
+    suspend fun countUploadable(): Int
+
+    @Query("SELECT COUNT(*) FROM attempts WHERE syncState = 'PENDING' AND endStatus != 'IN_PROGRESS'")
+    fun observeCountUploadable(): Flow<Int>
+
+    /** 관리자가 원인을 확인한 뒤 수동으로 재전송할 때만 호출 */
+    @Query("UPDATE attempts SET syncState = 'PENDING' WHERE syncState = 'UPLOAD_REJECTED'")
+    suspend fun requeueRejectedUploads(): Int
+
     @Query("SELECT attemptId FROM attempts WHERE syncState = 'SYNCED' ORDER BY endWallMs DESC LIMIT 1")
     suspend fun lastSyncedAttemptId(): String?
 
     // ---- events ----
     @Insert(onConflict = OnConflictStrategy.ABORT)
     suspend fun insertEvents(events: List<EventEntity>)
+
+    @Insert(onConflict = OnConflictStrategy.ABORT)
+    suspend fun insertEvent(event: EventEntity)
+
+    @Query("SELECT COUNT(*) FROM events WHERE attemptId = :attemptId AND seq = :seq")
+    suspend fun eventCount(attemptId: String, seq: Int): Int
 
     @Query("SELECT * FROM events WHERE attemptId = :attemptId ORDER BY seq")
     suspend fun eventsOf(attemptId: String): List<EventEntity>
@@ -109,6 +129,22 @@ interface ExperimentDao {
     /** 관리자가 검토 후 '해결 표시'만 한다. 어떤 기록도 삭제·수정하지 않는다. */
     @Query("UPDATE conflicts SET resolved = 1, resolutionNote = :note WHERE id = :id")
     suspend fun markConflictResolved(id: Long, note: String)
+
+    // ---- receive errors (phone) ----
+    @Insert
+    suspend fun insertReceiveError(e: ReceiveErrorEntity): Long
+
+    @Query("SELECT COUNT(*) FROM receive_errors WHERE attemptId = :attemptId AND errorType = :type AND sentHash = :sentHash")
+    suspend fun receiveErrorExists(attemptId: String, type: String, sentHash: String): Int
+
+    @Query("SELECT * FROM receive_errors WHERE resolved = 0 ORDER BY detectedAtWallMs")
+    suspend fun unresolvedReceiveErrors(): List<ReceiveErrorEntity>
+
+    @Query("SELECT * FROM receive_errors ORDER BY detectedAtWallMs")
+    suspend fun allReceiveErrors(): List<ReceiveErrorEntity>
+
+    @Query("UPDATE receive_errors SET resolved = 1, resolutionNote = :note WHERE id = :id")
+    suspend fun markReceiveErrorResolved(id: Long, note: String)
 
     // ---- received configs (watch) ----
     @Insert(onConflict = OnConflictStrategy.ABORT)

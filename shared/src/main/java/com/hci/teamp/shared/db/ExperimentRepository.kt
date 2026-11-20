@@ -1,7 +1,6 @@
 package com.hci.teamp.shared.db
 
 import android.os.SystemClock
-import android.util.Log
 import androidx.room.withTransaction
 import com.hci.teamp.shared.model.AttemptRecord
 import com.hci.teamp.shared.model.ConditionId
@@ -14,6 +13,9 @@ import com.hci.teamp.shared.model.TrialEvent
 import com.hci.teamp.shared.sync.AttemptUpload
 import com.hci.teamp.shared.sync.ContentHash
 import com.hci.teamp.shared.sync.SyncCodec
+import com.hci.teamp.shared.sync.SyncPolicies
+import com.hci.teamp.shared.sync.SyncPolicies.ReceiveDecision
+import com.hci.teamp.shared.util.HciLog
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
 
@@ -74,9 +76,12 @@ class ExperimentRepository(val db: ExperimentDatabase) {
 
     // ------------------------------------------------------------------ 시도 저장 (시행 기기 로컬)
 
-    /** START 시점에 IN_PROGRESS 행을 남긴다 → 앱이 죽으면 복구 시 INVALID 로 기록하기 위함(13.3). */
+    /**
+     * START 시점에 IN_PROGRESS 행을 남긴다 → 앱이 죽으면 복구 시 INVALID 로 기록하기 위함(13.3).
+     * 워치의 진행 중 시도는 NOT_READY: 종료(finalize) 전에는 절대 전송 대상이 되지 않는다.
+     */
     suspend fun beginLocalAttempt(partial: AttemptRecord, deviceType: DeviceType) {
-        val syncState = if (deviceType == DeviceType.WATCH) SyncState.PENDING else SyncState.LOCAL_PHONE
+        val syncState = if (deviceType == DeviceType.WATCH) SyncState.NOT_READY else SyncState.LOCAL_PHONE
         db.withTransaction {
             val existing = dao.attempt(partial.attemptId)
             if (existing != null) {
@@ -86,6 +91,21 @@ class ExperimentRepository(val db: ExperimentDatabase) {
             }
             dao.insertAttempt(partial.toEntity(syncState, deviceType.name, receivedAt = null))
             dao.insertEvents(partial.events.map { it.toEntity() })
+        }
+    }
+
+    /**
+     * 시행 중 관찰된 이벤트 1건을 즉시 영구 저장한다 (강제 종료 시 입력 기록 보존).
+     * IN_PROGRESS 시도에만 추가하며, 같은 seq 가 이미 있으면 다시 넣지 않는다.
+     * @return 저장했으면 true
+     */
+    suspend fun appendLocalEvent(event: TrialEvent): Boolean = db.withTransaction {
+        val row = dao.attempt(event.attemptId)
+        when {
+            row == null -> { HciLog.w(TAG, "appendEvent: no attempt row ${event.attemptId}#${event.seq}"); false }
+            row.endStatus != EndStatus.IN_PROGRESS.name -> false
+            dao.eventCount(event.attemptId, event.seq) > 0 -> false
+            else -> { dao.insertEvent(event.toEntity()); true }
         }
     }
 
@@ -122,22 +142,14 @@ class ExperimentRepository(val db: ExperimentDatabase) {
 
     /**
      * 앱 시작 시 호출: 비정상 종료로 남은 IN_PROGRESS 시도를 INVALID 로 확정(13.3).
-     * 메모리에만 있던 이벤트는 복구할 수 없으며, 관찰되지 않은 이벤트를 만들어 넣지 않는다.
+     * 시행 중 영구 저장된 이벤트를 그대로 포함하고, 관찰되지 않은 이벤트는 만들어 넣지 않는다.
      */
     suspend fun invalidateInterruptedAttempts(deviceType: DeviceType): List<String> {
         val ids = mutableListOf<String>()
         for (row in dao.inProgressAttempts()) {
             val partial: AttemptRecord = SyncCodec.json.decodeFromString(row.recordJson)
-            val invalid = partial.copy(
-                result = partial.result.copy(
-                    endStatus = EndStatus.INVALID,
-                    invalidReason = "APP_TERMINATED_DURING_TRIAL",
-                    endWallMs = null,
-                    elapsedMs = null,
-                    finalVolume = null,
-                    metrics = null,
-                )
-            )
+            val stored = dao.eventsOf(row.attemptId).map { it.toModel() }
+            val invalid = SyncPolicies.buildInterruptedRecord(partial, stored)
             finalizeLocalAttempt(invalid, deviceType)
             ids += row.attemptId
         }
@@ -148,33 +160,80 @@ class ExperimentRepository(val db: ExperimentDatabase) {
     // ------------------------------------------------------------------ 수신 저장 (스마트폰)
 
     /**
-     * 워치에서 받은 시도를 저장한다(12.3).
+     * 워치에서 받은 시도를 저장한다(12.3). 판단은 SyncPolicies.decideReceive 를 따른다.
      *  새 ID → SAVED / 동일 ID·동일 내용 → DUPLICATE / 동일 ID·다른 내용 → DATA_CONFLICT(보존)
+     *  해시 불일치 → REJECTED_HASH_MISMATCH, 진행 중 기록 → REJECTED_IN_PROGRESS
+     *    (둘 다 attempts 에 저장하지 않고 receive_errors 에 받은 내용 그대로 보존)
      * 반환 시점에는 트랜잭션 커밋이 끝나 있다 → 이후 ACK(persisted=true) 전송.
+     * @return (결과, 스마트폰이 계산한 해시)
      */
     suspend fun saveReceivedAttempt(upload: AttemptUpload, sourceNode: String): Pair<SaveOutcome, String> {
         val record = upload.record
         val hash = ContentHash.of(record)
-        if (hash != upload.contentHash) {
-            log("UPLOAD_HASH_MISMATCH", record.attemptId, "sent=${upload.contentHash} computed=$hash")
-        }
-        val outcome = db.withTransaction {
+        val source = "WATCH:$sourceNode"
+        val decision: ReceiveDecision = db.withTransaction {
             val existing = dao.attempt(record.attemptId)
-            when {
-                existing == null -> {
-                    dao.insertAttempt(record.toEntity(SyncState.RECEIVED, "WATCH:$sourceNode", System.currentTimeMillis(), hash))
+            val d = SyncPolicies.decideReceive(
+                incomingStatus = record.result.endStatus,
+                sentHash = upload.contentHash,
+                computedHash = hash,
+                existing = existing?.let { SyncPolicies.Existing(it.endStatus, it.contentHash) },
+            )
+            when (d) {
+                ReceiveDecision.SaveNew -> {
+                    dao.insertAttempt(record.toEntity(SyncState.RECEIVED, source, System.currentTimeMillis(), hash))
                     dao.insertEvents(record.events.map { it.toEntity() })
-                    SaveOutcome.SAVED
                 }
-                existing.contentHash == hash -> SaveOutcome.DUPLICATE
-                else -> {
-                    recordConflict(record, existing.contentHash, hash, "WATCH:$sourceNode")
-                    SaveOutcome.DATA_CONFLICT
+                ReceiveDecision.ReplaceInProgress -> {
+                    // 이전 버전이 저장한 진행 중 행: 내용을 오류 기록으로 보존한 뒤 최종 기록으로 확정
+                    existing!!
+                    recordReceiveError(
+                        attemptId = existing.attemptId, type = "IN_PROGRESS_SUPERSEDED",
+                        sentHash = existing.contentHash, computedHash = existing.contentHash,
+                        endStatus = existing.endStatus, payloadJson = existing.recordJson, source = existing.sourceDevice,
+                        resolved = true, note = "superseded by final record $hash",
+                    )
+                    val stored = dao.eventsOf(record.attemptId).associateBy { it.seq }
+                    val clash = record.events.any { e -> stored[e.seq]?.let { it.type != e.type.name || it.elapsedNs != e.elapsedNs } == true }
+                    if (clash) {
+                        // 같은 seq 에 다른 이벤트 → 덮어쓰지 않고 충돌로 보존
+                        recordConflict(record, existing.contentHash, hash, source)
+                        return@withTransaction ReceiveDecision.Conflict
+                    }
+                    dao.updateAttempt(record.toEntity(SyncState.RECEIVED, source, System.currentTimeMillis(), hash))
+                    dao.insertEvents(record.events.filter { it.seq !in stored }.map { it.toEntity() })
                 }
+                ReceiveDecision.Duplicate -> Unit
+                ReceiveDecision.Conflict -> recordConflict(record, existing!!.contentHash, hash, source)
+                is ReceiveDecision.Reject -> recordReceiveError(
+                    attemptId = record.attemptId,
+                    type = if (d.outcome == SaveOutcome.REJECTED_HASH_MISMATCH) "HASH_MISMATCH" else "IN_PROGRESS_RECEIVED",
+                    sentHash = upload.contentHash, computedHash = hash,
+                    endStatus = record.result.endStatus.name,
+                    payloadJson = SyncCodec.json.encodeToString(record), source = source,
+                    resolved = false, note = d.detail,
+                )
             }
+            d
         }
-        log("RECEIVE_$outcome", record.attemptId, sourceNode)
+        val outcome = SyncPolicies.outcomeOf(decision)
+        log("RECEIVE_$outcome", record.attemptId, "$sourceNode decision=$decision")
         return outcome to hash
+    }
+
+    private suspend fun recordReceiveError(
+        attemptId: String, type: String, sentHash: String, computedHash: String, endStatus: String,
+        payloadJson: String, source: String, resolved: Boolean, note: String?,
+    ) {
+        if (dao.receiveErrorExists(attemptId, type, sentHash) > 0) return // 같은 내용 재수신은 한 번만 보관
+        dao.insertReceiveError(
+            ReceiveErrorEntity(
+                attemptId = attemptId, errorType = type, sentHash = sentHash, computedHash = computedHash,
+                endStatus = endStatus, payloadJson = payloadJson, source = source,
+                detectedAtWallMs = System.currentTimeMillis(), resolved = resolved, resolutionNote = note,
+            )
+        )
+        HciLog.w(TAG, "RECEIVE_ERROR $type $attemptId sent=$sentHash computed=$computedHash")
     }
 
     private suspend fun recordConflict(record: AttemptRecord, existingHash: String, incomingHash: String, source: String) {
@@ -189,15 +248,16 @@ class ExperimentRepository(val db: ExperimentDatabase) {
                 detectedAtWallMs = System.currentTimeMillis(),
             )
         )
-        Log.w(TAG, "DATA_CONFLICT ${record.attemptId} existing=$existingHash incoming=$incomingHash")
+        HciLog.w(TAG, "DATA_CONFLICT ${record.attemptId} existing=$existingHash incoming=$incomingHash")
     }
 
     // ------------------------------------------------------------------ 워치 업로드 대기열
 
+    /** 전송 대상: 종료된 시도만 (진행 중 시도는 SQL 과 정책 양쪽에서 이중으로 제외). */
     suspend fun pendingUploads(): List<AttemptUpload> =
-        dao.attemptsBySyncState(SyncState.PENDING.name).map {
-            AttemptUpload(SyncCodec.json.decodeFromString(it.recordJson), it.contentHash)
-        }
+        dao.uploadableAttempts()
+            .filter { SyncPolicies.isUploadable(it.endStatus, it.syncState) }
+            .map { AttemptUpload(SyncCodec.json.decodeFromString(it.recordJson), it.contentHash) }
 
     suspend fun upload(attemptId: String): AttemptUpload? =
         dao.attempt(attemptId)?.let { AttemptUpload(SyncCodec.json.decodeFromString(it.recordJson), it.contentHash) }
@@ -205,7 +265,7 @@ class ExperimentRepository(val db: ExperimentDatabase) {
     // ------------------------------------------------------------------ 로그
 
     suspend fun log(type: String, attemptId: String?, detail: String?) {
-        Log.i(TAG, "$type attempt=$attemptId $detail")
+        HciLog.i(TAG, "$type attempt=$attemptId $detail")
         try {
             dao.insertSyncLog(
                 SyncLogEntity(
@@ -217,7 +277,7 @@ class ExperimentRepository(val db: ExperimentDatabase) {
                 )
             )
         } catch (t: Throwable) {
-            Log.e(TAG, "sync_log insert failed", t)
+            HciLog.e(TAG, "sync_log insert failed", t)
         }
     }
 
@@ -286,4 +346,14 @@ internal fun TrialEvent.toEntity(): EventEntity = EventEntity(
     wallMs = wallMs,
     value = value,
     rawJson = SyncCodec.json.encodeToString<Map<String, String>>(raw.toSortedMap()),
+)
+
+internal fun EventEntity.toModel(): TrialEvent = TrialEvent(
+    attemptId = attemptId,
+    seq = seq,
+    type = com.hci.teamp.shared.model.EventType.valueOf(type),
+    elapsedNs = elapsedNs,
+    wallMs = wallMs,
+    value = value,
+    raw = SyncCodec.json.decodeFromString<Map<String, String>>(rawJson),
 )
