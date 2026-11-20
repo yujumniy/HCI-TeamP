@@ -4,6 +4,7 @@ import com.hci.teamp.shared.db.AttemptEntity
 import com.hci.teamp.shared.db.ConflictEntity
 import com.hci.teamp.shared.db.EventEntity
 import com.hci.teamp.shared.db.ParticipantEntity
+import com.hci.teamp.shared.db.ReceiveErrorEntity
 import com.hci.teamp.shared.db.SyncLogEntity
 import java.io.OutputStream
 import java.time.Instant
@@ -76,6 +77,11 @@ object CsvExport {
     fun conflictsCsv(cs: List<ConflictEntity>): String = buildString {
         append(row("conflict_id", "attempt_id", "existing_hash", "incoming_hash", "source", "detected_at", "resolved", "resolution_note", "incoming_record_json"))
         for (c in cs) append(row(c.id, c.attemptId, c.existingHash, c.incomingHash, c.source, iso(c.detectedAtWallMs), c.resolved, c.resolutionNote, c.incomingRecordJson))
+    }
+
+    fun receiveErrorsCsv(es: List<ReceiveErrorEntity>): String = buildString {
+        append(row("error_id", "attempt_id", "error_type", "sent_hash", "computed_hash", "end_status", "source", "detected_at", "resolved", "resolution_note", "payload_json"))
+        for (e in es) append(row(e.id, e.attemptId, e.errorType, e.sentHash, e.computedHash, e.endStatus, e.source, iso(e.detectedAtWallMs), e.resolved, e.resolutionNote, e.payloadJson))
     }
 
     fun syncLogCsv(ls: List<SyncLogEntity>): String = buildString {

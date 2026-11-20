@@ -53,6 +53,7 @@ class ExportManager(context: Context) {
             "events.csv" to CsvExport.eventsCsv(dao.eventsOfParticipant(participantId)),
             "participants.csv" to CsvExport.participantsCsv(ps),
             "conflicts.csv" to CsvExport.conflictsCsv(dao.allConflicts().filter { it.attemptId.startsWith("$participantId-") }),
+            "receive_errors.csv" to CsvExport.receiveErrorsCsv(dao.allReceiveErrors().filter { it.attemptId.startsWith("$participantId-") }),
             "integrity_report.csv" to IntegrityChecker.toCsv(listOf(report)),
             "sync_log.csv" to CsvExport.syncLogCsv(dao.allSyncLog()),
         )
@@ -74,6 +75,7 @@ class ExportManager(context: Context) {
             "events.csv" to CsvExport.eventsCsv(dao.allEvents()),
             "participants.csv" to CsvExport.participantsCsv(participants),
             "conflicts.csv" to CsvExport.conflictsCsv(dao.allConflicts()),
+            "receive_errors.csv" to CsvExport.receiveErrorsCsv(dao.allReceiveErrors()),
             "integrity_report.csv" to IntegrityChecker.toCsv(reports),
             "sync_log.csv" to CsvExport.syncLogCsv(dao.allSyncLog()),
         )
