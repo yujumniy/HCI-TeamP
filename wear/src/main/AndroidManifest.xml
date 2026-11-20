@@ -50,5 +50,15 @@
                 <data android:scheme="wear" android:host="*" android:path="/hci_volume_phone" />
             </intent-filter>
         </service>
+        <activity
+            android:name=".experiment.WatchStudyActivity"
+            android:exported="true"
+            android:label="워치 실험 진행"
+            android:theme="@style/Theme.HciWear.NoSwipe">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
     </application>
 </manifest>

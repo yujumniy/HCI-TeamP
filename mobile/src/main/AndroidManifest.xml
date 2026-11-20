@@ -6,6 +6,7 @@
         android:supportsRtl="true"
         android:theme="@android:style/Theme.Material.Light.NoActionBar">
 
+        <activity android:name=".experiment.StudyActivity" android:exported="false" />
         <activity android:name=".experiment.ExperimentActivity" android:exported="false" />
 
         <!-- Phase 1 C1·C2 입력 검증 (팀원 1). 별도 아이콘으로 실행 -->

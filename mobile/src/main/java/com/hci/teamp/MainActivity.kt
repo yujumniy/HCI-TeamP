@@ -38,7 +38,7 @@ import androidx.compose.ui.unit.dp
 import com.google.android.gms.wearable.MessageClient
 import com.google.android.gms.wearable.MessageEvent
 import com.google.android.gms.wearable.Wearable
-import com.hci.teamp.experiment.ExperimentActivity
+import com.hci.teamp.experiment.StudyActivity
 import com.hci.teamp.shared.Paths
 import com.hci.teamp.shared.VolumeInfo
 import com.hci.teamp.shared.VolumeMonitor
@@ -66,7 +66,7 @@ class MainActivity : ComponentActivity(), MessageClient.OnMessageReceivedListene
                         canOverlay = canOverlay,
                         overlayOn = running,
                         onToggleOverlay = ::toggleOverlay,
-                        onOpenExperiment = { startActivity(Intent(this, ExperimentActivity::class.java)) },
+                        onOpenExperiment = { startActivity(Intent(this, StudyActivity::class.java)) },
                         onAdjust = { stream, dir -> monitor.adjust(stream, dir) },
                     )
                 }
