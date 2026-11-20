@@ -27,6 +27,8 @@ class RecordedTrialTest {
     private class Store : AttemptStore {
         val begins = mutableListOf<AttemptRecord>()
         val finals = mutableListOf<AttemptRecord>()
+        val appended = mutableListOf<com.hci.teamp.shared.model.TrialEvent>()
+        override suspend fun appendEvent(event: com.hci.teamp.shared.model.TrialEvent) { appended.add(event) }
         val completion = CompletableDeferred<SaveOutcome>()
         override suspend fun begin(partial: AttemptRecord, deviceType: DeviceType) { begins.add(partial) }
         override suspend fun finalize(record: AttemptRecord, deviceType: DeviceType): SaveOutcome {
@@ -128,6 +130,21 @@ class RecordedTrialTest {
         assertTrue(store.finals.isEmpty())
     }
 
+    @Test fun rejectedSaveCannotAdvanceAsSuccessfulResult() {
+        val clock = Clock()
+        val store = Store().apply { completion.complete(SaveOutcome.REJECTED_HASH_MISMATCH) }
+        val scope = CoroutineScope(Dispatchers.Unconfined)
+        val trial = RecordedTrial(
+            config, AttemptRecorder(config, store, deviceModel = "JVM", clock = clock, scope = scope),
+            Input(), Audio(), scope, clock::nowNs,
+        )
+        trial.ready()
+        clock.advance(3000)
+        trial.tick()
+        trial.complete()
+        assertEquals(RecordedPhase.ERROR, trial.state.value.phase)
+        assertTrue(checkNotNull(trial.state.value.error).contains("REJECTED_HASH_MISMATCH"))
+    }
     @Test fun storedPlanHasEightPracticeAndThirtyTwoMainTasks() {
         val conditions = V1Protocol.conditionsFor(1).map { ConditionId.valueOf(it.name) }
         val plan = StudyPlan.configs("P001", conditions, StudyPlan.taskOrders("P001"))

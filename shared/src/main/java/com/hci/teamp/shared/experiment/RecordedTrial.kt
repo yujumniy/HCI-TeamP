@@ -139,8 +139,8 @@ class RecordedTrial(
         scope.launch {
             try {
                 val outcomeSaved = saved.await()
-                mutableState.value = if (outcomeSaved == SaveOutcome.DATA_CONFLICT) {
-                    state.value.copy(phase = RecordedPhase.ERROR, error = "DATA_CONFLICT · 관리자 확인이 필요합니다.")
+                mutableState.value = if (outcomeSaved != SaveOutcome.SAVED && outcomeSaved != SaveOutcome.DUPLICATE) {
+                    state.value.copy(phase = RecordedPhase.ERROR, error = "$outcomeSaved · 관리자 확인이 필요합니다.")
                 } else {
                     state.value.copy(phase = RecordedPhase.RESULT)
                 }

@@ -153,11 +153,14 @@ class PhoneSyncClient private constructor(context: Context) {
             if (status.pendingCount > 0) reasons += "워치 미전송 기록 ${status.pendingCount}건"
             if (status.conflictCount > 0) reasons += "워치 측 충돌 기록 ${status.conflictCount}건"
             if (status.tooLargeCount > 0) reasons += "워치 전송 불가(용량 초과) 기록 ${status.tooLargeCount}건"
+            if (status.rejectedCount > 0) reasons += "스마트폰이 수신 거부한 워치 기록 ${status.rejectedCount}건(해시 불일치 등)"
             if (status.inProgressAttemptId != null) reasons += "워치 진행 중 시도 ${status.inProgressAttemptId}"
             if (status.pendingCount > 0) requestFlush()
         }
         val phoneConflicts = repo.dao.unresolvedConflicts().size
         if (phoneConflicts > 0) reasons += "미해결 DATA_CONFLICT ${phoneConflicts}건"
+        val receiveErrors = repo.dao.unresolvedReceiveErrors().size
+        if (receiveErrors > 0) reasons += "미해결 수신 오류 ${receiveErrors}건(receive_errors)"
         val gate = SyncGate(reasons.isEmpty(), reasons, status)
         if (!gate.ready) repo.log("SYNC_GATE_BLOCKED", null, reasons.joinToString(" | "))
         return gate
@@ -220,6 +223,7 @@ class PhoneSyncClient private constructor(context: Context) {
             return
         }
         // saveReceivedAttempt 는 트랜잭션 커밋 후 반환한다 → 그 다음에만 persisted=true ACK.
+        // 거부(REJECTED_*)도 오류 기록이 커밋된 뒤 ACK 하므로 persisted=true 이며, 워치는 outcome 으로 구분한다.
         val (outcome, hash) = repo.saveReceivedAttempt(upload, sourceNodeId)
         val ack = ResultAck(upload.record.attemptId, outcome, hash, persisted = true)
         val sent = messenger.send(SyncPaths.RESULT_ACK, SyncCodec.encode(ack), sourceNodeId)
