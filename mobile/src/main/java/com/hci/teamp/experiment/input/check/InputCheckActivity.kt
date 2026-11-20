@@ -390,7 +390,7 @@ class InputCheckActivity : ComponentActivity() {
             }
             Spacer(Modifier.weight(1f))
             if (condition == Condition.C1) {
-                ReadOnlyBar(shown?.percent ?: 0)
+                com.hci.teamp.experiment.input.VolumeBar(shown?.percent ?: 0, Modifier.fillMaxWidth())
                 Spacer(Modifier.height(20.dp))
                 Text("측면 버튼으로 조절", color = LABEL, fontSize = 16.sp)
             } else {
@@ -422,16 +422,6 @@ class InputCheckActivity : ComponentActivity() {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Text(label, color = LABEL, fontSize = 18.sp)
             Text(value?.toString() ?: "–", color = Color.White, fontSize = 56.sp, fontWeight = FontWeight.Bold)
-        }
-    }
-
-    @Composable
-    private fun ReadOnlyBar(value: Int) {
-        Canvas(Modifier.fillMaxWidth().height(26.dp)) {
-            val r = CornerRadius(size.height / 2)
-            drawRoundRect(Color(0xFF334155), cornerRadius = r)
-            val w = size.width * value / 100f
-            if (w > 0) drawRoundRect(Color(0xFF55B8BE), size = Size(w.coerceAtLeast(size.height), size.height), cornerRadius = r)
         }
     }
 
