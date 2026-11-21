@@ -1,7 +1,8 @@
 package com.hci.teamp.shared.experiment
 
 const val TRIAL_TIMEOUT_MS = 30_000L
-const val CONDITION_REST_MS = 30_000L
+// Pilot revision approved 2026-11-21; the trial timeout remains 30 seconds.
+const val CONDITION_REST_MS = 15_000L
 
 object V1Protocol {
     private val conditionRows = listOf(

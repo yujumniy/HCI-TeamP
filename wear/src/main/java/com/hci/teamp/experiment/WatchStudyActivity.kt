@@ -6,6 +6,7 @@ import android.media.AudioAttributes
 import android.media.AudioManager
 import android.media.MediaPlayer
 import android.os.SystemClock
+import android.view.WindowManager
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -99,7 +100,7 @@ class WatchStudyViewModel(application: Application) : AndroidViewModel(applicati
                 val gain = value / 100f
                 player.setVolume(gain, gain)
             }
-            override fun stop() { player.pause(); player.seekTo(0) }
+            override fun stop() { if (player.isPlaying) player.pause(); player.seekTo(0) }
         }
         val input = when (cfg.condition) {
             ConditionId.C3 -> bezel
@@ -125,9 +126,11 @@ class WatchStudyViewModel(application: Application) : AndroidViewModel(applicati
 }
 
 class WatchStudyActivity : ComponentActivity() {
+    private var foreground by mutableStateOf(false)
     private lateinit var model: WatchStudyViewModel
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         model = ViewModelProvider(this)[WatchStudyViewModel::class.java]
         setContent {
             MaterialTheme {
@@ -141,7 +144,13 @@ class WatchStudyActivity : ComponentActivity() {
         }
     }
 
+    override fun onStart() {
+        super.onStart()
+        foreground = true
+    }
+
     override fun onStop() {
+        foreground = false
         model.interrupt()
         super.onStop()
     }
@@ -165,8 +174,9 @@ class WatchStudyActivity : ComponentActivity() {
                 return@Column
             }
             val state by trial.state.collectAsState()
-            LaunchedEffect(trial) {
-                while (true) {
+            LaunchedEffect(trial, state.phase, foreground) {
+                while (foreground && (trial.state.value.phase == RecordedPhase.COUNTDOWN ||
+                        trial.state.value.phase == RecordedPhase.ACTIVE)) {
                     trial.tick()
                     delay(25)
                 }

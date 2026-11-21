@@ -55,6 +55,59 @@ class StudyViewModel(application: Application) : AndroidViewModel(application) {
 
     val participantId get() = selected?.participantId
 
+    // ---------- 관리자 음량 확인 · 시험 재생 ----------
+    private val prefs = application.getSharedPreferences("audio_check", android.content.Context.MODE_PRIVATE)
+    private val audioManager = application.getSystemService(AudioManager::class.java)
+
+    /** 시스템 미디어 음량 (현재 to 최대). 관리자 화면에서 주기적으로 갱신 */
+    var mediaVolume by mutableStateOf(0 to 0)
+        private set
+    var gainCurve by mutableStateOf(GainCurve.fromName(prefs.getString("gain_curve", null)))
+        private set
+    /** 시험 재생 중인 가상 음량 (재생 중이 아니면 null) */
+    var testPlaying by mutableStateOf<Int?>(null)
+        private set
+    private var testJob: Job? = null
+
+    fun refreshMediaVolume() {
+        mediaVolume = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC) to
+            audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
+    }
+
+    /** 시스템 음량 패널만 띄웁니다. 앱이 값을 바꾸지 않습니다 (ADJUST_SAME). */
+    fun showSystemVolumePanel() {
+        audioManager.adjustStreamVolume(AudioManager.STREAM_MUSIC, AudioManager.ADJUST_SAME, AudioManager.FLAG_SHOW_UI)
+    }
+
+    fun selectGainCurve(curve: GainCurve) {
+        gainCurve = curve
+        audio?.curve = curve
+        prefs.edit().putString("gain_curve", curve.name).apply()
+        scope.launch(Dispatchers.IO) { repo.log("AUDIO_GAIN_CURVE", "", curve.name) }
+    }
+
+    /** 관리자 화면에서만: 가상 음량 [volume]으로 벨소리를 [durationMs] 동안 재생 */
+    fun testPlay(volume: Int, durationMs: Long = 2500) {
+        val player = audio ?: run { notice = "벨소리 로딩 실패 · 앱을 다시 열어 주세요."; return }
+        if (screen != StudyScreen.ADMIN) return
+        testJob?.cancel()
+        player.curve = gainCurve
+        player.stop()
+        player.start(VirtualVolume(volume))
+        testPlaying = volume
+        testJob = scope.launch {
+            delay(durationMs)
+            player.stop()
+            testPlaying = null
+        }
+    }
+
+    fun stopTestPlay() {
+        testJob?.cancel()
+        if (testPlaying != null) audio?.stop()
+        testPlaying = null
+    }
+
     init {
         val raw: (RawInput) -> Unit = { event ->
             trial?.raw(event.kind.name, mapOf(
@@ -70,6 +123,8 @@ class StudyViewModel(application: Application) : AndroidViewModel(application) {
         }
         keys.rawListener = raw
         slider.rawListener = raw
+        audio?.curve = gainCurve
+        refreshMediaVolume()
         action {
             val recovered = PhoneStudyRecovery.initialize(repo)
             participants = repo.dao.allParticipants()
@@ -154,6 +209,7 @@ class StudyViewModel(application: Application) : AndroidViewModel(application) {
     fun prepareTrial() = action {
         check(screen == StudyScreen.READY)
         val cfg = checkNotNull(config)
+        stopTestPlay()
         if (cfg.device == DeviceType.WATCH) {
             val gate = sync.checkReadyForNextWatchTrial()
             check(gate.ready) { gate.reasons.joinToString("\n") }
@@ -165,10 +221,13 @@ class StudyViewModel(application: Application) : AndroidViewModel(application) {
             notice = "워치에서 준비를 누르고 시행해 주세요. 결과 저장을 기다리고 있습니다."
             return@action
         }
+        stopTestPlay()
         val player = checkNotNull(audio) { "벨소리 로딩 실패 · 앱을 다시 열어 주세요." }
+        // Administrator audio comparison must not change only the phone trial protocol.
+        player.curve = GainCurve.LINEAR
         val manager = getApplication<Application>().getSystemService(AudioManager::class.java)
         check(manager.getStreamVolume(AudioManager.STREAM_MUSIC) > 0) {
-            "시스템 미디어 음량이 0입니다. 폰 설정에서 사전 음량을 설정해 주세요."
+            "시스템 미디어 음량이 0입니다. 관리자 화면의 '음량 확인'에서 미디어 음량을 올리고 시험 재생으로 확인해 주세요."
         }
         val input = when (cfg.condition) {
             ConditionId.C1 -> keys
@@ -221,6 +280,7 @@ class StudyViewModel(application: Application) : AndroidViewModel(application) {
     fun showAdmin() {
         if (screen == StudyScreen.PHONE || screen == StudyScreen.WATCH || busy) return
         screen = StudyScreen.ADMIN
+        refreshMediaVolume()
     }
 
     fun export(participant: ParticipantEntity? = selected) = action {
@@ -247,6 +307,7 @@ class StudyViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     override fun onCleared() {
+        stopTestPlay()
         interrupt()
         keys.stop()
         slider.stop()

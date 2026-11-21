@@ -8,18 +8,21 @@ import com.hci.teamp.shared.R
 import com.hci.teamp.shared.experiment.VirtualVolume
 
 internal class RingtoneAudio private constructor(private val player: MediaPlayer) : ExperimentAudio {
+    /** 가상 음량 → 게인 변환 방식. 파일럿에서 확정 (GainCurve 참고) */
+    var curve: GainCurve = GainCurve.LINEAR
+
     override fun start(value: VirtualVolume) {
         setVolume(value)
         player.start()
     }
 
     override fun setVolume(value: VirtualVolume) {
-        val gain = value.percent / 100f
+        val gain = curve.gain(value.percent)
         player.setVolume(gain, gain)
     }
 
     override fun stop() {
-        player.pause()
+        if (player.isPlaying) player.pause()
         player.seekTo(0)
     }
 

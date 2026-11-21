@@ -14,15 +14,11 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.unit.Dp
-import androidx.compose.ui.unit.dp
 import com.hci.teamp.shared.experiment.Attempt
 import com.hci.teamp.shared.experiment.Condition
 import com.hci.teamp.shared.experiment.ExperimentDevice
@@ -131,19 +127,6 @@ object SliderMath {
     fun hitsThumb(downX: Float, thumbX: Float, touchWidth: Float): Boolean = abs(downX - thumbX) <= touchWidth / 2
 }
 
-data class SliderStyle(
-    val track: Dp,
-    val thumb: Dp,
-    val touch: Dp,
-    val fill: Color = Color(0xFF55B8BE),
-    val rest: Color = Color(0xFF5B6880),
-    val thumbColor: Color = Color.White,
-) {
-    companion object {
-        val Phone = SliderStyle(track = 16.dp, thumb = 34.dp, touch = 56.dp)
-    }
-}
-
 @Composable
 private fun SliderView(slider: PhoneVolumeSlider, style: SliderStyle, modifier: Modifier) {
     val density = LocalDensity.current
@@ -195,13 +178,10 @@ private fun SliderView(slider: PhoneVolumeSlider, style: SliderStyle, modifier: 
                     }
                 },
         ) {
-            val trackH = style.track.toPx()
-            val cy = size.height / 2
-            val r = CornerRadius(trackH / 2)
-            drawRoundRect(style.rest, topLeft = Offset(0f, cy - trackH / 2), size = Size(size.width, trackH), cornerRadius = r)
+            drawVolumeTrack(style, current, left, right)
             val v = current ?: return@Canvas
             val tx = SliderMath.thumbX(v, left, right)
-            drawRoundRect(style.fill, topLeft = Offset(0f, cy - trackH / 2), size = Size(tx, trackH), cornerRadius = r)
+            val cy = size.height / 2
             drawCircle(Color(0x33000000), radius = thumbPx / 2 + 2, center = Offset(tx, cy + 2))
             drawCircle(style.thumbColor, radius = thumbPx / 2, center = Offset(tx, cy))
         }
