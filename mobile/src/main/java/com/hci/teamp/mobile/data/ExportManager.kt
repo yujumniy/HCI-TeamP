@@ -52,16 +52,18 @@ class ExportManager(context: Context) {
             "trials.csv" to CsvExport.trialsCsv(dao.attemptsOf(participantId)),
             "events.csv" to CsvExport.eventsCsv(dao.eventsOfParticipant(participantId)),
             "participants.csv" to CsvExport.participantsCsv(ps),
+            "session_modes.csv" to sessionModes(ps),
             "conflicts.csv" to CsvExport.conflictsCsv(dao.allConflicts().filter { it.attemptId.startsWith("$participantId-") }),
             "receive_errors.csv" to CsvExport.receiveErrorsCsv(dao.allReceiveErrors().filter { it.attemptId.startsWith("$participantId-") }),
             "integrity_report.csv" to IntegrityChecker.toCsv(listOf(report)),
             "sync_log.csv" to CsvExport.syncLogCsv(dao.allSyncLog()),
         )
+        val modePrefix = if (ps.singleOrNull()?.groupId == "DEMO") "DEMO_" else ""
         val stamp = stamp()
         val (folder, name) = if (kind == "AUTO_BACKUP")
-            BACKUP_DIR to "HCI_${participantId}_backup_$stamp.zip"
+            BACKUP_DIR to "HCI_${modePrefix}${participantId}_backup_$stamp.zip"
         else
-            EXPORT_DIR to "HCI_${participantId}_$stamp.zip"
+            EXPORT_DIR to "HCI_${modePrefix}${participantId}_$stamp.zip"
         return write(folder, name, files, participantId, kind, report.passed)
     }
 
@@ -74,6 +76,7 @@ class ExportManager(context: Context) {
             "trials.csv" to CsvExport.trialsCsv(dao.allAttempts()),
             "events.csv" to CsvExport.eventsCsv(dao.allEvents()),
             "participants.csv" to CsvExport.participantsCsv(participants),
+            "session_modes.csv" to sessionModes(participants),
             "conflicts.csv" to CsvExport.conflictsCsv(dao.allConflicts()),
             "receive_errors.csv" to CsvExport.receiveErrorsCsv(dao.allReceiveErrors()),
             "integrity_report.csv" to IntegrityChecker.toCsv(reports),
@@ -149,6 +152,11 @@ class ExportManager(context: Context) {
         )?.use { return it.count > 0 }
         return false
     }
+
+    private fun sessionModes(participants: List<com.hci.teamp.shared.db.ParticipantEntity>): String =
+        "participant_id,session_mode,exclude_from_main_analysis\r\n" + participants.joinToString("") {
+            "${it.participantId},${if (it.groupId == "DEMO") "DEMO,true" else "STUDY,false"}\r\n"
+        }
 
     private fun stamp(): String = SimpleDateFormat("yyyyMMdd_HHmm", Locale.US).format(Date())
 

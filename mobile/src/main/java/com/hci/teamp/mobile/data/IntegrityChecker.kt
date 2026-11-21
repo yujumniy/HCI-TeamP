@@ -34,6 +34,7 @@ class IntegrityChecker(private val repo: ExperimentRepository) {
         val issues = mutableListOf<Issue>()
         val attempts = dao.attemptsOf(participantId)
         val taskOrders = repo.taskOrdersOf(participantId)
+        val demo = dao.participant(participantId)?.groupId == com.hci.teamp.shared.experiment.DemoPlan.GROUP
 
         fun add(check: Int, sev: String, msg: String, cond: String? = null, task: String? = null, att: String? = null) {
             issues += Issue(check, sev, participantId, cond, task, att, msg)
@@ -44,8 +45,10 @@ class IntegrityChecker(private val repo: ExperimentRepository) {
             add(1, "ERROR", "참가자 과제 순서 정보 없음")
         } else {
             for (c in ConditionId.entries) {
-                val tasks = taskOrders[c].orEmpty()
-                if (tasks.size != 8) add(1, "ERROR", "${c.name} 과제 수 ${tasks.size} (8 필요)", c.name)
+                val stored = taskOrders[c].orEmpty()
+                val tasks = if (demo) com.hci.teamp.shared.experiment.DemoPlan.taskIds.filter { it in stored } else stored
+                val expected = if (demo) 3 else 8
+                if (tasks.size != expected) add(1, "ERROR", "${c.name} 과제 수 ${tasks.size} ($expected 필요)", c.name)
                 for (t in tasks) {
                     val ok = attempts.any {
                         it.conditionId == c.name && it.taskId == t && it.phase == "MAIN" &&

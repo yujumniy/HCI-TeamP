@@ -54,6 +54,7 @@ class StudyViewModel(application: Application) : AndroidViewModel(application) {
         private set
 
     val participantId get() = selected?.participantId
+    val isDemo get() = selected?.groupId == DemoPlan.GROUP
 
     // ---------- 관리자 음량 확인 · 시험 재생 ----------
     private val prefs = application.getSharedPreferences("audio_check", android.content.Context.MODE_PRIVATE)
@@ -133,11 +134,17 @@ class StudyViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun register() = action {
-        val participant = repo.registerParticipant { number, id ->
+    fun register() = registerSession(false)
+
+    fun registerDemo() = registerSession(true)
+
+    private fun registerSession(demo: Boolean) = action {
+        stopTestPlay()
+        val studyNumber = repo.dao.allParticipants().count { it.groupId != DemoPlan.GROUP } + 1
+        val participant = repo.registerParticipant { _, id ->
             ExperimentRepository.ParticipantPlan(
-                "G${(number - 1) % 4 + 1}",
-                V1Protocol.conditionsFor(number).map { ConditionId.valueOf(it.name) },
+                if (demo) DemoPlan.GROUP else "G${(studyNumber - 1) % 4 + 1}",
+                if (demo) ConditionId.entries.toList() else V1Protocol.conditionsFor(studyNumber).map { ConditionId.valueOf(it.name) },
                 StudyPlan.taskOrders(id),
             )
         }
@@ -158,7 +165,8 @@ class StudyViewModel(application: Application) : AndroidViewModel(application) {
         }
         val orders = checkNotNull(repo.taskOrdersOf(participant.participantId))
         val conditions = participant.conditionOrder.split(",").map(ConditionId::valueOf)
-        val plan = StudyPlan.configs(participant.participantId, conditions, orders)
+        val plan = if (isDemo) DemoPlan.configs(participant.participantId, conditions, orders)
+        else StudyPlan.configs(participant.participantId, conditions, orders)
         val rows = repo.dao.attemptsOf(participant.participantId)
         val finished = rows.filter {
             it.endStatus == EndStatus.COMPLETED.name || it.endStatus == EndStatus.TIMEOUT.name
@@ -182,10 +190,11 @@ class StudyViewModel(application: Application) : AndroidViewModel(application) {
             ConditionId.valueOf(it.conditionId) in previousConditions &&
                 (it.endStatus == EndStatus.COMPLETED.name || it.endStatus == EndStatus.TIMEOUT.name)
         }.mapNotNull { if (it.deviceType == DeviceType.WATCH.name) it.receivedAtWallMs else it.endWallMs }.maxOrNull()
-        val remaining = latestPreviousEnd?.let {
+        val remaining = if (isDemo) 0L else latestPreviousEnd?.let {
             (CONDITION_REST_MS - (System.currentTimeMillis() - it)).coerceIn(0L, CONDITION_REST_MS)
         } ?: 0L
         screen = when {
+            isDemo -> StudyScreen.READY
             next.taskId == "PR01" && remaining > 0L -> {
                 restUntilMs = SystemClock.elapsedRealtime() + remaining
                 StudyScreen.REST
@@ -194,7 +203,7 @@ class StudyViewModel(application: Application) : AndroidViewModel(application) {
             next.phase == com.hci.teamp.shared.model.TrialPhase.MAIN && next.orderIndex == 1 -> StudyScreen.MAIN_GATE
             else -> StudyScreen.READY
         }
-        notice = ""
+        notice = if (isDemo) "촬영용 시연 · ${next.condition} ${next.orderIndex}/3 · 본 실험 분석 제외" else ""
     }
 
     fun continuePreparation() {

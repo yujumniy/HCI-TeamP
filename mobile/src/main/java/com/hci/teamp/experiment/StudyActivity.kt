@@ -131,7 +131,7 @@ class StudyActivity : ComponentActivity() {
                 // 폰 조건 준비: 시행 화면과 같은 배치에서 숫자는 숨김, 버튼만 '준비'
                 val cfg = checkNotNull(model.config)
                 TrialFrame(
-                    header = "${cfg.condition} · ${if (cfg.phase == TrialPhase.PRACTICE) "연습" else "본 시행"}",
+                    header = "${if (model.isDemo) "촬영용 시연 · " else ""}${cfg.condition} · ${if (cfg.phase == TrialPhase.PRACTICE) "연습" else "본 시행"}",
                     values = { ValueCards(null, null) },
                     center = { CenterControl(cfg.condition, null, interactive = false); NoticeLine() },
                     button = { BigButton("준비", model::prepareTrial, enabled = !model.busy) },
@@ -283,6 +283,8 @@ class StudyActivity : ComponentActivity() {
                 Text("기술 검증용 통합본 · 실기기 저장·동기화 검증 후 본 실험을 진행해 주세요.")
                 AudioCheckCard()
                 BigAdminButton("참가자 새로 등록", model::register, enabled = !model.busy)
+                BigAdminButton("촬영용 시연 시작 · 조건별 3회", model::registerDemo, enabled = !model.busy)
+                Text("시연은 C1 → C2 → C3 → C4, 총 12회입니다. 연습·조건 사이 휴식은 생략하며 본 실험 분석에서 제외합니다.")
                 model.participants.forEach { participant ->
                     Text("${participant.participantId} · ${participant.groupId} · ${participant.conditionOrder}")
                     BigAdminButton("${participant.participantId} 계속하기", { model.resume(participant) }, enabled = !model.busy)
@@ -309,7 +311,7 @@ class StudyActivity : ComponentActivity() {
                 OutlinedButton(onClick = model::abort, enabled = !model.busy) { Text("관리자 긴급 중단") }
             }
             StudyScreen.FINISHED -> {
-                Text("전 조건을 마쳤습니다.")
+                Text(if (model.isDemo) "촬영용 시연 12회를 마쳤습니다." else "전 조건을 마쳤습니다.")
                 OutlinedButton(onClick = { model.export() }, enabled = !model.busy) { Text("다시 내보내기") }
             }
             else -> Unit
