@@ -13,6 +13,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.input.rotary.onRotaryScrollEvent
+import androidx.compose.ui.platform.LocalContext
 import com.hci.teamp.shared.experiment.Attempt
 import com.hci.teamp.shared.experiment.Condition
 import com.hci.teamp.shared.experiment.ExperimentDevice
@@ -31,11 +32,15 @@ import com.hci.teamp.shared.experiment.VirtualVolume
  * - 값이 실제로 바뀔 때만 InputEvent를 냅니다. 한 이벤트로 2단계 이상 바뀌면 관찰된 값 하나만 냅니다 (명세 11.1).
  * - 터치 베젤은 손가락 접촉(누름/뗌) 신호를 앱에 주지 않습니다. 재접촉은 회전 이벤트 간격으로만 추정하며
  *   GESTURE_START 원시 기록에 "derived"로 표시합니다. 실제 INPUT_DOWN으로 다루지 않습니다.
+ * - 값이 한 단계 바뀔 때마다 stepper.config.haptic 설정대로 진동합니다 (경계에서 값이 안 바뀌면 진동 없음,
+ *   목표 도달 시 특별한 진동 없음). 진동할 때마다 HAPTIC 원시 기록을 남깁니다.
  * - 홈·뒤로 버튼이나 물리 회전 베젤로 대체하지 않습니다.
  */
 class WatchTouchBezel(
     private val clock: () -> Long = { SystemClock.elapsedRealtime() },
     val stepper: BezelStepper = BezelStepper(),
+    /** 단계 진동. null이면 Content()가 화면에 처음 나올 때 만듭니다. */
+    var haptics: WatchHaptics? = null,
 ) : ExperimentInput {
 
     override val condition = Condition.C3
@@ -109,6 +114,11 @@ class WatchTouchBezel(
         val after = VirtualVolume(next)
         value = after
         onChange?.invoke(InputEvent(a.id, ExperimentDevice.WEAR, now, before, after))
+        val effect = stepper.config.haptic
+        if (effect != BezelConfig.Haptic.OFF) {
+            val played = haptics?.play(effect) ?: false
+            raw(WatchRawInput.Kind.HAPTIC, "effect=$effect;played=$played;value=${after.percent}", now)
+        }
         return true
     }
 
@@ -123,7 +133,11 @@ class WatchTouchBezel(
     @Composable
     fun Content(modifier: Modifier = Modifier, content: @Composable () -> Unit) {
         val focus = remember { FocusRequester() }
-        LaunchedEffect(Unit) { focus.requestFocus() }
+        val context = LocalContext.current
+        LaunchedEffect(Unit) {
+            if (haptics == null) haptics = WatchHaptics(context.applicationContext)
+            focus.requestFocus()
+        }
         Box(
             modifier
                 .onRotaryScrollEvent { onRotary(it.verticalScrollPixels, it.uptimeMillis) }

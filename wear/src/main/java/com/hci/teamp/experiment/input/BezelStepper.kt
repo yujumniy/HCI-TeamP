@@ -17,15 +17,19 @@ data class BezelConfig(
     val clockwiseIsPositive: Boolean = true,
     /** 이전 회전 이벤트와의 간격이 이보다 길면 손가락을 떼었다가 다시 댄 것(새 동작)으로 봅니다 */
     val gestureGapMs: Long = 300L,
+    /** 값이 한 단계 바뀔 때마다 진동 (OFF / TICK 약 / CLICK 강). 사용 여부는 팀 합의 후 확정 */
+    val haptic: Haptic = Haptic.CLICK,
 ) {
     enum class Mode { PER_EVENT, ACCUMULATE }
+
+    enum class Haptic { OFF, TICK, CLICK }
 
     init {
         require(pixelsPerStep > 0f && gestureGapMs > 0L)
     }
 
     fun describe(): String =
-        "mode=$mode;px_per_step=$pixelsPerStep;cw_positive=$clockwiseIsPositive;gap_ms=$gestureGapMs"
+        "mode=$mode;px_per_step=$pixelsPerStep;cw_positive=$clockwiseIsPositive;gap_ms=$gestureGapMs;haptic=$haptic"
 }
 
 class BezelStepper(config: BezelConfig = BezelConfig()) {

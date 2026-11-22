@@ -359,6 +359,18 @@ class WatchInputCheckActivity : ComponentActivity() {
                     }
                 }
                 item {
+                    MenuChip(
+                        "단계 진동",
+                        when (bezelConfig.haptic) {
+                            BezelConfig.Haptic.OFF -> "끔"
+                            BezelConfig.Haptic.TICK -> "약하게 (TICK)"
+                            BezelConfig.Haptic.CLICK -> "강하게 (CLICK)"
+                        },
+                    ) {
+                        setBezel(bezelConfig.copy(haptic = next(BezelConfig.Haptic.entries, bezelConfig.haptic)))
+                    }
+                }
+                item {
                     MenuChip("방향", if (bezelConfig.clockwiseIsPositive) "원시값 + = 시계" else "원시값 − = 시계 (반전)") {
                         setBezel(bezelConfig.copy(clockwiseIsPositive = !bezelConfig.clockwiseIsPositive))
                     }

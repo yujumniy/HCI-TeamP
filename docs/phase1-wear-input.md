@@ -9,6 +9,7 @@
 | 파일 | 내용 |
 | --- | --- |
 | `wear/…/experiment/input/WatchTouchBezel.kt` | C3. `ExperimentInput` 구현 + `Content {}` 화면 래퍼. 회전 이벤트 → ±5 |
+| `wear/…/experiment/input/WatchHaptics.kt` | C3 단계 진동 (TICK 약 / CLICK 강) |
 | `wear/…/experiment/input/BezelStepper.kt` | C3 변환 규칙 (방향, 감도, 재접촉). Android 의존성 없음 |
 | `wear/…/experiment/input/WatchVolumeSlider.kt` | C4. `ExperimentInput` 구현 + `Content()`. 손잡이 드래그만 허용, 트랙 탭 차단 |
 | `wear/…/experiment/input/WatchSliderMath.kt` | C4 좌표 ↔ 값 계산 (팀원 1의 SliderMath와 같은 규칙) |
@@ -48,9 +49,15 @@ slider.stop()
 | `pixelsPerStep` | 48 | ACCUMULATE 모드 감도 |
 | `clockwiseIsPositive` | true | 원시값 +가 시계 방향인지. 시계 방향 = 증가가 되도록 맞춤 |
 | `gestureGapMs` | 300 | 이 시간보다 오래 회전이 없으면 다음 회전을 새 동작으로 봄 |
+| `haptic` | CLICK | 값이 한 단계 바뀔 때마다 진동 (OFF / TICK / CLICK). **사용 여부는 팀 합의 필요** |
 
 - 새 동작이 시작되거나 방향이 바뀌면 남은 회전량을 버립니다 → 손을 뗐다 다시 댔을 때 값이 튀지 않음.
 - 한 이벤트로 2단계 이상 바뀌면 중간값 없이 관찰된 값 하나만 냅니다.
+- 단계 진동: 실제 갤럭시 터치 베젤처럼 한 칸마다 진동합니다. 값이 바뀔 때만 매번 같은 진동이고,
+  0/100 경계에서 값이 안 바뀌면 진동하지 않으며, 목표 도달 시 별도 진동은 없습니다 (명세 5.1).
+  진동할 때마다 `HAPTIC` 원시 기록(`effect`, `played`)이 남습니다.
+  C1 물리 버튼의 딸깍 느낌과 맞춰 "주변부 입력 = 단계마다 촉각 피드백 있음, 슬라이더 = 없음"이 됩니다.
+  파일럿에서 시스템 진동과 겹쳐 두 번 울리지 않는지 확인합니다.
 
 ## 검증 화면 실행
 1. 실행 설정 `wear` → Edit Configurations → Launch: **Specified Activity**
@@ -72,6 +79,7 @@ slider.stop()
 | C3-반시계방향 | 한 칸에 −5, 0에서 멈춤 | | | |
 | C3-재접촉 | 돌리다 떼고 다시 댈 때 값이 튀지 않음 | | | |
 | C3-감도 | 한 칸에 이벤트 몇 개, px 값이 얼마인지 기록 → 변환 방식 결정 | | | |
+| C3-단계 진동 | 한 칸에 진동 한 번, 경계·목표에서 추가 진동 없음, TICK/CLICK 중 어느 쪽이 느껴지는지 | | | |
 | C3-화면 간섭 | 베젤을 문지를 때 `SCREEN_TOUCH_DOWN`이 같이 찍히는지 | | | |
 | C4-드래그정확성 | 끄는 동안 5단위로 바로 갱신, 잡는 순간 값이 튀지 않음, 끌어도 앱이 안 닫힘 | | | |
 | C4-트랙탭차단 | 손잡이 밖을 눌러도 값 그대로, 차단 횟수 증가 | | | |
@@ -82,6 +90,6 @@ slider.stop()
 
 ## 팀에 확인할 것
 1. Watch4 터치 베젤이 회전 이벤트를 주지 않으면 C3을 어떻게 할지 (명세상 버튼 등으로 대체 불가 → 팀 결정 필요)
-2. 터치 베젤을 돌릴 때 시스템 진동이 나는지, 끌 수 있는지 → 한계점에 기록
+2. C3 단계 진동 사용 여부와 세기(TICK/CLICK) 확정 → 사용하면 제안서 조건 정의에 명시
 3. 공통 `EventType`에 INPUT_DOWN/INPUT_UP 추가 여부 (팀원 1과 함께)
 4. `SliderMath`를 폰·워치 공통 모듈로 옮길지
