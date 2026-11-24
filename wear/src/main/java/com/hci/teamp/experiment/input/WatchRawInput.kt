@@ -34,5 +34,8 @@ data class WatchRawInput(
 
         /** C4: 손잡이 밖 트랙을 눌러 차단됨 */
         TRACK_TAP_BLOCKED,
+
+        /** C3: 값이 바뀌어 단계 진동을 냄 */
+        HAPTIC,
     }
 }

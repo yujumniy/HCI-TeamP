@@ -89,6 +89,14 @@ class WearInputLogicTest {
         assertEquals(0, BezelStepper.apply(5, -3))
     }
 
+    @Test
+    fun `단계 진동 기본값은 CLICK이고 설정 기록에 남는다`() {
+        val c = BezelConfig()
+        assertEquals(BezelConfig.Haptic.CLICK, c.haptic)
+        assertTrue(c.describe().endsWith("haptic=CLICK"))
+        assertTrue(c.copy(haptic = BezelConfig.Haptic.OFF).describe().contains("haptic=OFF"))
+    }
+
     // ───────── C4 슬라이더 ─────────
 
     @Test
