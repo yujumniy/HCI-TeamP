@@ -57,6 +57,10 @@ class StudyViewModel(application: Application) : AndroidViewModel(application) {
     var lastBackup by mutableStateOf<ExportManager.ExportResult?>(null)
         private set
 
+    var completedTasks by mutableStateOf<Map<String, Int>>(emptyMap())
+        private set
+    val isPilot get() = selected?.groupId?.let(FixedRoster::pilot) == true
+
     val participantId get() = selected?.participantId
     val isDemo get() = selected?.groupId == DemoPlan.GROUP
 
@@ -131,38 +135,30 @@ class StudyViewModel(application: Application) : AndroidViewModel(application) {
         audio?.curve = gainCurve
         refreshMediaVolume()
         action {
+            repo.ensureFixedRoster()
             val recovered = PhoneStudyRecovery.initialize(repo)
-            participants = repo.dao.allParticipants()
-            notice = if (recovered.isEmpty()) "참가자를 새로 등록하거나 기존 참가자를 선택해 주세요."
+            refreshRoster()
+            notice = if (recovered.isEmpty()) "본 실험 P001~P016 또는 예비실험 P017·P018을 선택해 주세요."
             else "중단된 시도 ${recovered.size}건을 INVALID로 보존했습니다. 참가자를 선택해 재개해 주세요."
         }
     }
 
-    fun register() = registerSession(false)
-
-    fun registerDemo() = registerSession(true)
-
-    private fun registerSession(demo: Boolean) = action {
-        stopTestPlay()
-        val studyNumber = repo.dao.allParticipants().count { it.groupId != DemoPlan.GROUP } + 1
-        val participant = repo.registerParticipant { _, id ->
-            ExperimentRepository.ParticipantPlan(
-                if (demo) DemoPlan.GROUP else "G${(studyNumber - 1) % 4 + 1}",
-                if (demo) ConditionId.entries.toList() else V1Protocol.conditionsFor(studyNumber).map { ConditionId.valueOf(it.name) },
-                StudyPlan.taskOrders(id),
-            )
-        }
+    private suspend fun refreshRoster() {
         participants = repo.dao.allParticipants()
-        selected = participant
-        findNext()
+        completedTasks = repo.dao.allAttempts().filter {
+            it.endStatus == EndStatus.COMPLETED.name || it.endStatus == EndStatus.TIMEOUT.name
+        }.groupBy { it.participantId }.mapValues { (_, rows) -> rows.map { it.logicalTaskId }.distinct().size }
     }
 
     fun resume(participant: ParticipantEntity) = action {
+        check(participant.finishedAtWallMs == null) { "완료된 참가자는 다시 시작하지 않습니다." }
+        stopTestPlay()
         selected = participant
         findNext()
     }
 
     private suspend fun findNext() {
+        refreshRoster()
         val participant = checkNotNull(selected)
         check(repo.dao.unresolvedConflicts().none { it.attemptId.startsWith("${participant.participantId}-") }) {
             "미해결 DATA_CONFLICT가 있습니다. 관리자 검토 후 재개해 주세요."
@@ -184,6 +180,7 @@ class StudyViewModel(application: Application) : AndroidViewModel(application) {
             lastBackup = withContext(Dispatchers.IO) {
                 ExportManager(getApplication()).finishParticipantAndBackup(participant.participantId)
             }
+            refreshRoster()
             notice = exportDescription(checkNotNull(lastBackup))
             return
         }
@@ -297,6 +294,7 @@ class StudyViewModel(application: Application) : AndroidViewModel(application) {
         if (screen == StudyScreen.PHONE || screen == StudyScreen.WATCH || busy) return
         screen = StudyScreen.ADMIN
         refreshMediaVolume()
+        action { refreshRoster() }
     }
 
     fun export(participant: ParticipantEntity? = selected) = action {

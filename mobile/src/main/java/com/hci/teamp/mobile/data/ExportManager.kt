@@ -1,5 +1,6 @@
 package com.hci.teamp.mobile.data
 
+import com.hci.teamp.shared.experiment.FixedRoster
 import android.content.ContentValues
 import android.content.Context
 import android.net.Uri
@@ -49,7 +50,7 @@ class ExportManager(context: Context) {
         val dao = repo.dao
         val ps = listOfNotNull(dao.participant(participantId))
         val files = listOf(
-            "trials.csv" to CsvExport.trialsCsv(dao.attemptsOf(participantId)),
+            "trials.csv" to CsvExport.trialsCsv(dao.attemptsOf(participantId), ps.filter { FixedRoster.mode(it.groupId) != "STUDY" }.map { it.participantId }.toSet()),
             "events.csv" to CsvExport.eventsCsv(dao.eventsOfParticipant(participantId)),
             "participants.csv" to CsvExport.participantsCsv(ps),
             "session_modes.csv" to sessionModes(ps),
@@ -58,7 +59,7 @@ class ExportManager(context: Context) {
             "integrity_report.csv" to IntegrityChecker.toCsv(listOf(report)),
             "sync_log.csv" to CsvExport.syncLogCsv(dao.allSyncLog()),
         )
-        val modePrefix = if (ps.singleOrNull()?.groupId == "DEMO") "DEMO_" else ""
+        val modePrefix = "FIXED18_" + if (ps.singleOrNull()?.let { FixedRoster.pilot(it.groupId) } == true) "PILOT_" else ""
         val stamp = stamp()
         val (folder, name) = if (kind == "AUTO_BACKUP")
             BACKUP_DIR to "HCI_${modePrefix}${participantId}_backup_$stamp.zip"
@@ -71,9 +72,11 @@ class ExportManager(context: Context) {
         val dao = repo.dao
         val pending = PhoneSyncClient.get(app).requestWatchStatus()?.pendingCount
         val participants = dao.allParticipants()
-        val reports = participants.map { checker.check(it.participantId, pending) }
+        val attempts = dao.allAttempts()
+        val activeIds = attempts.map { it.participantId }.toSet()
+        val reports = participants.filter { it.participantId in activeIds }.map { checker.check(it.participantId, pending) }
         val files = listOf(
-            "trials.csv" to CsvExport.trialsCsv(dao.allAttempts()),
+            "trials.csv" to CsvExport.trialsCsv(attempts, participants.filter { FixedRoster.mode(it.groupId) != "STUDY" }.map { it.participantId }.toSet()),
             "events.csv" to CsvExport.eventsCsv(dao.allEvents()),
             "participants.csv" to CsvExport.participantsCsv(participants),
             "session_modes.csv" to sessionModes(participants),
@@ -82,7 +85,7 @@ class ExportManager(context: Context) {
             "integrity_report.csv" to IntegrityChecker.toCsv(reports),
             "sync_log.csv" to CsvExport.syncLogCsv(dao.allSyncLog()),
         )
-        return write(EXPORT_DIR, "HCI_ALL_${stamp()}.zip", files, null, "MANUAL_ALL", reports.all { it.passed })
+        return write(EXPORT_DIR, "HCI_FIXED18_ALL_${stamp()}.zip", files, null, "MANUAL_ALL", reports.all { it.passed })
     }
 
     private suspend fun write(
@@ -155,7 +158,7 @@ class ExportManager(context: Context) {
 
     private fun sessionModes(participants: List<com.hci.teamp.shared.db.ParticipantEntity>): String =
         "participant_id,session_mode,exclude_from_main_analysis\r\n" + participants.joinToString("") {
-            "${it.participantId},${if (it.groupId == "DEMO") "DEMO,true" else "STUDY,false"}\r\n"
+            "${it.participantId},${FixedRoster.mode(it.groupId)},${FixedRoster.mode(it.groupId) != "STUDY"}\r\n"
         }
 
     private fun stamp(): String = SimpleDateFormat("yyyyMMdd_HHmm", Locale.US).format(Date())

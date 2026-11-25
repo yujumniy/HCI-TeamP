@@ -3,6 +3,6 @@
     tools:keep="@array/android_wear_capabilities">
     <!-- 워치가 이 이름으로 스마트폰을 찾는다 (SyncPaths.CAP_PHONE) -->
     <string-array name="android_wear_capabilities">
-        <item>hci_volume_phone</item>
+        <item>hci_fixed18_phone</item>
     </string-array>
 </resources>

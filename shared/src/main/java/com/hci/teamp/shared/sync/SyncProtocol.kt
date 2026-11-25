@@ -19,7 +19,7 @@ import java.util.zip.GZIPOutputStream
  */
 object SyncPaths {
     const val VERSION = 1
-    private const val P = "/hci/v1"
+    private const val P = "/hci/fixed18/v1"
 
     // phone → watch
     const val CONFIG = "$P/config"            // TrialConfig
@@ -36,8 +36,8 @@ object SyncPaths {
     const val PONG = "$P/pong"                // Pong
 
     // Capability 이름 (각 앱 res/values/wear.xml 에 선언)
-    const val CAP_PHONE = "hci_volume_phone"
-    const val CAP_WATCH = "hci_volume_watch"
+    const val CAP_PHONE = "hci_fixed18_phone"
+    const val CAP_WATCH = "hci_fixed18_watch"
 
     /** MessageClient 1회 payload 안전 상한(공식 한도 약 100KB 보다 여유를 둠). */
     const val MAX_PAYLOAD_BYTES = 90 * 1024

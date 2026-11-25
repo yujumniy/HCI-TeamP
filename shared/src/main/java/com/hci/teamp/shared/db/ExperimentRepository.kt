@@ -56,6 +56,23 @@ class ExperimentRepository(val db: ExperimentDatabase) {
             entity
         }
 
+    /** Preallocate the fixed roster atomically; never replace a started participant. */
+    suspend fun ensureFixedRoster() = db.withTransaction {
+        val expected = com.hci.teamp.shared.experiment.FixedRoster.slots
+        check(dao.allParticipants().all { p -> expected.any { it.id == p.participantId } })
+        for (slot in expected) {
+            val existing = dao.participant(slot.id)
+            if (existing != null) {
+                check(existing.groupId == slot.group && existing.conditionOrder == slot.conditions.joinToString(",") { it.name })
+                continue
+            }
+            val orders = com.hci.teamp.shared.experiment.StudyPlan.taskOrders(slot.id)
+            dao.insertParticipant(ParticipantEntity(slot.id, slot.number, slot.group,
+                slot.conditions.joinToString(",") { it.name },
+                SyncCodec.json.encodeToString(orders.mapKeys { it.key.name }), System.currentTimeMillis()))
+        }
+    }
+
     /** 저장된 과제 순서를 그대로 읽는다(재실행·복구 시 재생성 금지, 7.2). */
     suspend fun taskOrdersOf(participantId: String): Map<ConditionId, List<String>>? {
         val p = dao.participant(participantId) ?: return null

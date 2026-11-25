@@ -39,7 +39,7 @@ object CsvExport {
 
     private fun row(vararg v: Any?): String = v.joinToString(",") { esc(it) } + "\r\n"
 
-    fun trialsCsv(attempts: List<AttemptEntity>): String = buildString {
+    fun trialsCsv(attempts: List<AttemptEntity>, excludedParticipants: Set<String> = emptySet()): String = buildString {
         append(
             row(
                 "attempt_id", "logical_task_id", "participant_id", "condition_id", "task_id", "attempt_no",
@@ -53,7 +53,7 @@ object CsvExport {
         for (a in attempts) {
             val record = SyncCodec.json.decodeFromString<AttemptRecord>(a.recordJson)
             val completion = if (a.endStatus == "COMPLETED") a.elapsedMs else null
-            val included = a.phase == "MAIN" && (a.endStatus == "COMPLETED" || a.endStatus == "TIMEOUT")
+            val included = a.participantId !in excludedParticipants && a.phase == "MAIN" && (a.endStatus == "COMPLETED" || a.endStatus == "TIMEOUT")
             append(
                 row(
                     a.attemptId, a.logicalTaskId, a.participantId, a.conditionId, a.taskId, a.attemptNo,

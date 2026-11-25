@@ -46,11 +46,11 @@
             android:exported="true">
             <intent-filter>
                 <action android:name="com.google.android.gms.wearable.MESSAGE_RECEIVED" />
-                <data android:scheme="wear" android:host="*" android:pathPrefix="/hci/v1" />
+                <data android:scheme="wear" android:host="*" android:pathPrefix="/hci/fixed18/v1" />
             </intent-filter>
             <intent-filter>
                 <action android:name="com.google.android.gms.wearable.CAPABILITY_CHANGED" />
-                <data android:scheme="wear" android:host="*" android:path="/hci_volume_phone" />
+                <data android:scheme="wear" android:host="*" android:path="/hci_fixed18_phone" />
             </intent-filter>
         </service>
         <activity

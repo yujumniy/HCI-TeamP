@@ -29,6 +29,7 @@ import com.hci.teamp.experiment.ui.TrialFrame
 import com.hci.teamp.experiment.ui.TrialUi
 import com.hci.teamp.experiment.ui.ValueCards
 import com.hci.teamp.mobile.debug.CommTestActivity
+import com.hci.teamp.shared.experiment.FixedRoster
 import com.hci.teamp.shared.experiment.RecordedPhase
 import com.hci.teamp.shared.experiment.RecordedTrial
 import com.hci.teamp.shared.model.ConditionId
@@ -281,17 +282,22 @@ class StudyActivity : ComponentActivity() {
             StudyScreen.ADMIN -> {
                 Text("실험 관리 · 슬라이더 1단위 / 버튼·베젤 5단위", style = MaterialTheme.typography.headlineSmall)
                 Text("기술 검증용 통합본 · 실기기 저장·동기화 검증 후 본 실험을 진행해 주세요.")
-                AudioCheckCard()
-                BigAdminButton("참가자 새로 등록", model::register, enabled = !model.busy)
-                BigAdminButton("촬영용 시연 시작 · 조건별 3회", model::registerDemo, enabled = !model.busy)
-                Text("시연은 C1 → C2 → C3 → C4, 총 12회입니다. 연습·조건 사이 휴식은 생략하며 본 실험 분석에서 제외합니다.")
-                model.participants.forEach { participant ->
-                    Text("${participant.participantId} · ${participant.groupId} · ${participant.conditionOrder}")
-                    BigAdminButton("${participant.participantId} 계속하기", { model.resume(participant) }, enabled = !model.busy)
-                    OutlinedButton(onClick = { model.export(participant) }, enabled = !model.busy) {
-                        Text("${participant.participantId} CSV ZIP 내보내기")
+                Text("본 실험 P001~P016 · 예비실험 P017·P018 · 예비실험도 전체 40회 진행")
+                Text("기존 파일럿 자료는 별도 보존됩니다. 참가자는 추가 생성하지 않습니다.")
+                listOf(false, true).forEach { pilot ->
+                    Text(if (pilot) "예비실험 · 분석 제외" else "본 실험", style = MaterialTheme.typography.titleLarge)
+                    model.participants.filter { FixedRoster.pilot(it.groupId) == pilot }.forEach { participant ->
+                        val completed = participant.finishedAtWallMs != null
+                        val count = model.completedTasks[participant.participantId] ?: 0
+                        Text("${participant.participantId} · ${participant.conditionOrder} · ${if (completed) "완료" else if (count > 0) "진행 중 $count/40" else "시작 전"}")
+                        BigAdminButton("${participant.participantId} ${if (completed) "완료" else if (count > 0) "계속하기" else "실험 시작"}",
+                            { model.resume(participant) }, enabled = !model.busy && !completed)
+                        if (count > 0) OutlinedButton(onClick = { model.export(participant) }, enabled = !model.busy) {
+                            Text("${participant.participantId} CSV ZIP 내보내기")
+                        }
                     }
                 }
+                AudioCheckCard()
                 OutlinedButton(onClick = { model.export(null) }, enabled = !model.busy) {
                     Text("전체 CSV ZIP 내보내기")
                 }
@@ -311,7 +317,7 @@ class StudyActivity : ComponentActivity() {
                 OutlinedButton(onClick = model::abort, enabled = !model.busy) { Text("관리자 긴급 중단") }
             }
             StudyScreen.FINISHED -> {
-                Text(if (model.isDemo) "촬영용 시연 12회를 마쳤습니다." else "전 조건을 마쳤습니다.")
+                Text(if (model.isPilot) "예비실험 전 조건을 마쳤습니다. 본 분석에서 제외합니다." else "전 조건을 마쳤습니다.")
                 OutlinedButton(onClick = { model.export() }, enabled = !model.busy) { Text("다시 내보내기") }
             }
             else -> Unit

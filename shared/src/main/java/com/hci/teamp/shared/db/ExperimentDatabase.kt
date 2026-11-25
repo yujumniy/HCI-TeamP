@@ -29,7 +29,8 @@ abstract class ExperimentDatabase : RoomDatabase() {
     abstract fun dao(): ExperimentDao
 
     companion object {
-        private const val NAME = "hci_experiment.db"
+        // Old hci_experiment.db is kept untouched as a legacy archive.
+        private const val NAME = "hci_fixed18_20261125.db"
 
         /**
          * v1 → v2
