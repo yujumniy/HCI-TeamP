@@ -6,6 +6,10 @@ import com.hci.teamp.shared.db.EventEntity
 import com.hci.teamp.shared.db.ParticipantEntity
 import com.hci.teamp.shared.db.ReceiveErrorEntity
 import com.hci.teamp.shared.db.SyncLogEntity
+import com.hci.teamp.shared.model.AttemptRecord
+import com.hci.teamp.shared.model.InputResolution
+import com.hci.teamp.shared.sync.SyncCodec
+import kotlinx.serialization.decodeFromString
 import java.io.OutputStream
 import java.time.Instant
 import java.time.ZoneId
@@ -43,10 +47,11 @@ object CsvExport {
                 "final_volume", "end_status", "completion_time_ms", "elapsed_ms", "max_overshoot",
                 "overshoot_count", "reached_target", "first_reach_ms", "final_abs_error", "direction_changes",
                 "path_distance", "first_input_ms", "invalid_reason", "included_in_main_analysis",
-                "start_wall_time", "end_wall_time", "source_device", "sync_state", "content_hash",
+                "start_wall_time", "end_wall_time", "source_device", "sync_state", "content_hash", "input_policy", "volume_step",
             )
         )
         for (a in attempts) {
+            val record = SyncCodec.json.decodeFromString<AttemptRecord>(a.recordJson)
             val completion = if (a.endStatus == "COMPLETED") a.elapsedMs else null
             val included = a.phase == "MAIN" && (a.endStatus == "COMPLETED" || a.endStatus == "TIMEOUT")
             append(
@@ -56,7 +61,7 @@ object CsvExport {
                     a.finalVolume, a.endStatus, completion, a.elapsedMs, a.maxOvershoot,
                     a.overshootCount, a.reachedTarget, a.firstReachMs, a.finalAbsError, a.directionChanges,
                     a.pathDistance, a.firstInputMs, a.invalidReason, included,
-                    iso(a.startWallMs), iso(a.endWallMs), a.sourceDevice, a.syncState, a.contentHash,
+                    iso(a.startWallMs), iso(a.endWallMs), a.sourceDevice, a.syncState, a.contentHash, InputResolution.version(record), InputResolution.recordedStep(record),
                 )
             )
         }

@@ -14,7 +14,7 @@ enum class Condition(val device: ExperimentDevice) {
 @JvmInline
 value class VirtualVolume(val percent: Int) {
     init {
-        require(percent in 0..100 && percent % 5 == 0)
+        require(percent in 0..100)
     }
 }
 

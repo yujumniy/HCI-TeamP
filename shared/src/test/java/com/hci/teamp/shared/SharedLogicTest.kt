@@ -109,4 +109,18 @@ class SharedLogicTest {
         assertEquals(9.0, r.result.completionTimeMs!!, 1e-9)
         assertEquals(null, r.result.copy(endStatus = EndStatus.TIMEOUT).completionTimeMs)
     }
+
+    @Test fun legacyRecordsRemainFiveUnitWhileTaggedSliderRecordsAreOneUnit() {
+        val old = record(emptyMap())
+        val oldHash = ContentHash.of(old)
+        assertEquals(com.hci.teamp.shared.model.InputResolution.LEGACY,
+            com.hci.teamp.shared.model.InputResolution.version(old))
+        assertEquals(5, com.hci.teamp.shared.model.InputResolution.recordedStep(old))
+        val cfg = old.result.config.copy(attemptId = "P001-C2-T04-A01", condition = ConditionId.C2)
+        val updated = old.copy(result = old.result.copy(config = cfg, deviceType = DeviceType.PHONE),
+            events = old.events.map { e -> e.copy(attemptId = cfg.attemptId, raw = if (e.type == EventType.START)
+                mapOf("input_policy" to com.hci.teamp.shared.model.InputResolution.VERSION, "volume_step" to "1") else e.raw) })
+        assertEquals(1, com.hci.teamp.shared.model.InputResolution.recordedStep(updated))
+        assertEquals(oldHash, ContentHash.of(old))
+    }
 }

@@ -1,5 +1,9 @@
 package com.hci.teamp.experiment
 
+import com.hci.teamp.shared.model.InputResolution
+import com.hci.teamp.shared.model.AttemptRecord
+import com.hci.teamp.shared.sync.SyncCodec
+import kotlinx.serialization.decodeFromString
 import android.app.Application
 import android.media.AudioManager
 import android.os.SystemClock
@@ -182,6 +186,9 @@ class StudyViewModel(application: Application) : AndroidViewModel(application) {
             }
             notice = exportDescription(checkNotNull(lastBackup))
             return
+        }
+        check(rows.all { InputResolution.version(SyncCodec.json.decodeFromString<AttemptRecord>(it.recordJson)) == InputResolution.VERSION }) {
+            "이 참가자는 이전 입력 설정으로 진행한 기록이 있습니다. 기록은 보존하고 새 참가자로 시작해 주세요."
         }
         val number = repo.nextAttemptNo(next.participantId, next.condition, next.taskId)
         config = StudyPlan.retry(next, number)

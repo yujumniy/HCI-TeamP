@@ -1,5 +1,9 @@
 package com.hci.teamp.mobile.data
 
+import com.hci.teamp.shared.model.InputResolution
+import com.hci.teamp.shared.model.AttemptRecord
+import com.hci.teamp.shared.sync.SyncCodec
+import kotlinx.serialization.decodeFromString
 import com.hci.teamp.shared.db.ExperimentRepository
 import com.hci.teamp.shared.model.ConditionId
 import com.hci.teamp.shared.model.EndStatus
@@ -98,8 +102,12 @@ class IntegrityChecker(private val repo: ExperimentRepository) {
                 }
             }
 
-            // 5. 음량 범위·5단위
-            fun okVol(v: Int?) = v == null || (v in 0..100 && v % 5 == 0)
+            // Validate using the recorded policy, preserving old five-unit datasets.
+            val record = SyncCodec.json.decodeFromString<AttemptRecord>(a.recordJson)
+            val policy = InputResolution.version(record)
+            if (policy != InputResolution.VERSION && policy != InputResolution.LEGACY) a2(5, "ERROR", "알 수 없는 입력 설정: $policy")
+            val step = InputResolution.recordedStep(record)
+            fun okVol(v: Int?) = InputResolution.valid(v, step)
             if (!okVol(a.startVolume) || !okVol(a.targetVolume) || !okVol(a.finalVolume)) a2(5, "ERROR", "시작/목표/최종 음량 규칙 위반")
             ev.filter { it.type == EventType.VALUE_CHANGE.name }.forEach {
                 if (!okVol(it.value)) a2(5, "ERROR", "VALUE_CHANGE 값 규칙 위반: ${it.value} (seq ${it.seq})")

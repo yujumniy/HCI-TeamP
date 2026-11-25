@@ -279,7 +279,7 @@ class StudyActivity : ComponentActivity() {
     private fun AdminScreens() {
         when (model.screen) {
             StudyScreen.ADMIN -> {
-                Text("실험 관리", style = MaterialTheme.typography.headlineSmall)
+                Text("실험 관리 · 슬라이더 1단위 / 버튼·베젤 5단위", style = MaterialTheme.typography.headlineSmall)
                 Text("기술 검증용 통합본 · 실기기 저장·동기화 검증 후 본 실험을 진행해 주세요.")
                 AudioCheckCard()
                 BigAdminButton("참가자 새로 등록", model::register, enabled = !model.busy)

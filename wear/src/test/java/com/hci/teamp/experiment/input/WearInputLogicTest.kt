@@ -100,11 +100,11 @@ class WearInputLogicTest {
     // ───────── C4 슬라이더 ─────────
 
     @Test
-    fun `슬라이더 위치는 5단위로 맞춰지고 범위를 벗어나지 않는다`() {
+    fun `슬라이더 위치는 1단위로 맞춰지고 범위를 벗어나지 않는다`() {
         assertEquals(0, WatchSliderMath.valueAt(-50f, 0f, 200f))
         assertEquals(100, WatchSliderMath.valueAt(260f, 0f, 200f))
-        assertEquals(40, WatchSliderMath.valueAt(81f, 0f, 200f))
-        assertEquals(45, WatchSliderMath.valueAt(87f, 0f, 200f))
+        assertEquals(41, WatchSliderMath.valueAt(81f, 0f, 200f))
+        assertEquals(44, WatchSliderMath.valueAt(87f, 0f, 200f))
     }
 
     @Test

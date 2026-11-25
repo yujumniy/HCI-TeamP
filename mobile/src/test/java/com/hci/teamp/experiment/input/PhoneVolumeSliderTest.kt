@@ -24,12 +24,12 @@ class PhoneVolumeSliderTest {
         val s = PhoneVolumeSlider(clock = { 100L })
         s.start(attempt(40)) { events += it }
         s.onDragValue(40)   // 그대로
-        s.onDragValue(42)   // 40으로 반올림 → 그대로
+        s.onDragValue(42)
         s.onDragValue(45)
         s.onDragValue(60)   // 45 → 60 한 번에
-        s.onDragValue(58)   // 60 그대로
-        assertEquals(listOf(40 to 45, 45 to 60), events.map { it.previous.percent to it.current.percent })
-        assertEquals(60, s.value?.percent)
+        s.onDragValue(58)
+        assertEquals(listOf(40 to 42, 42 to 45, 45 to 60, 60 to 58), events.map { it.previous.percent to it.current.percent })
+        assertEquals(58, s.value?.percent)
     }
 
     @Test
@@ -64,8 +64,8 @@ class PhoneVolumeSliderTest {
         assertEquals(0, SliderMath.valueAt(-50f, 0f, 1000f))
         assertEquals(100, SliderMath.valueAt(1200f, 0f, 1000f))
         assertEquals(50, SliderMath.valueAt(500f, 0f, 1000f))
-        assertEquals(55, SliderMath.valueAt(530f, 0f, 1000f))  // 53 → 55
-        assertEquals(50, SliderMath.valueAt(520f, 0f, 1000f))  // 52 → 50
+        assertEquals(53, SliderMath.valueAt(530f, 0f, 1000f))
+        assertEquals(52, SliderMath.valueAt(520f, 0f, 1000f))
         assertEquals(450f, SliderMath.thumbX(45, 0f, 1000f))
         assertTrue(SliderMath.hitsThumb(470f, 450f, 56f))
         assertFalse(SliderMath.hitsThumb(480f, 450f, 56f))

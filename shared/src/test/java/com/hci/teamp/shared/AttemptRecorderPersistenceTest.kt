@@ -139,4 +139,26 @@ class AttemptRecorderPersistenceTest {
         assertEquals(listOf(1), store.appended.map { it.seq })
         assertEquals(EndStatus.TIMEOUT, store.finalized!!.result.endStatus)
     }
+
+    @Test fun sliderOneUnitValuesPersistRoundTripAndRetainPolicy() = runBlocking {
+        val clock = FakeClock(); val store = FakeStore()
+        val c = cfg.copy(attemptId = "P001-C2-T04-A01", condition = ConditionId.C2, startVolume = 40, targetVolume = 55)
+        val rec = AttemptRecorder(c, store, DeviceType.PHONE, "test", clock,
+            CoroutineScope(SupervisorJob() + Dispatchers.Default))
+        rec.start()
+        listOf(41, 54, 56, 55).forEach { clock.advanceMs(10); rec.valueChange(it) }
+        clock.advanceMs(10)
+        withTimeout(3000) { rec.complete().await() }
+        val record = store.finalized!!
+        assertEquals(listOf(41, 54, 56, 55), record.events.filter { it.type == EventType.VALUE_CHANGE }.map { it.value })
+        assertEquals(com.hci.teamp.shared.model.InputResolution.VERSION, com.hci.teamp.shared.model.InputResolution.version(record))
+        assertEquals("1", record.events.first().raw["volume_step"])
+        assertEquals(1, record.result.metrics!!.maxOvershoot)
+        assertEquals(17, record.result.metrics!!.pathDistance)
+        assertEquals(0, record.result.metrics!!.finalAbsError)
+        val encoded = com.hci.teamp.shared.sync.SyncCodec.encode(record)
+        val decoded = com.hci.teamp.shared.sync.SyncCodec.decode<AttemptRecord>(encoded)
+        assertEquals(record, decoded)
+        assertEquals(com.hci.teamp.shared.sync.ContentHash.of(record), com.hci.teamp.shared.sync.ContentHash.of(decoded))
+    }
 }

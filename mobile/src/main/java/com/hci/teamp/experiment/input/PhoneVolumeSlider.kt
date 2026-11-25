@@ -34,7 +34,7 @@ import kotlin.math.roundToInt
  * 사용법: 시행이 ACTIVE가 되면 start(), 끝나면 stop(). 화면에는 Content()를 배치합니다.
  *
  * - 손잡이를 직접 끌어야만 값이 바뀝니다. 손잡이 밖 트랙을 누르면 값은 그대로이고 차단 횟수만 늘어납니다.
- * - 끄는 동안 5단위 값이 바뀔 때마다 즉시 InputEvent를 냅니다 (손을 떼기 전에도).
+ * - 끄는 동안 1단위 정수 값이 바뀔 때마다 즉시 InputEvent를 냅니다 (손을 떼기 전에도).
  * - 손가락이 여러 단계를 한 번에 건너뛰면 실제 관찰된 값 하나만 냅니다 (중간값을 만들지 않음, 명세 11.1).
  * - 잡은 위치와 손잡이 중심의 차이를 유지해서, 잡는 순간 값이 튀지 않습니다.
  */
@@ -112,12 +112,12 @@ class PhoneVolumeSlider(
 
 /** 슬라이더 좌표 ↔ 값 계산 (단위 테스트 대상) */
 object SliderMath {
-    fun normalize(percent: Int): Int = (percent.coerceIn(0, 100) / 5f).roundToInt() * 5
+    fun normalize(percent: Int): Int = percent.coerceIn(0, 100)
 
     /** 손잡이 중심 x */
     fun thumbX(percent: Int, left: Float, right: Float): Float = left + (right - left) * (percent / 100f)
 
-    /** 트랙 위 x → 5단위 값 */
+    /** 트랙 위 x → 1단위 정수 값 */
     fun valueAt(x: Float, left: Float, right: Float): Int {
         val frac = ((x - left) / (right - left)).coerceIn(0f, 1f)
         return normalize((frac * 100).roundToInt())

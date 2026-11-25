@@ -1,5 +1,6 @@
 package com.hci.teamp.shared.recorder
 
+import com.hci.teamp.shared.model.InputResolution
 import android.os.Build
 import android.os.SystemClock
 import com.hci.teamp.shared.db.ExperimentRepository
@@ -66,7 +67,7 @@ open class RepositoryAttemptStore(protected val repo: ExperimentRepository) : At
  *
  * 입력 담당 (1·2번):
  *   rec.inputDown(raw)      // 버튼 누름, 베젤 접촉, 슬라이더 손잡이 터치
- *   rec.valueChange(newVol, raw)   // 가상 음량이 실제로 5단위 변했을 때만
+ *   rec.valueChange(newVol, raw)   // 가상 음량이 실제로 변했을 때만
  *   rec.inputUp(raw)
  *
  * 규칙
@@ -125,7 +126,10 @@ class AttemptRecorder(
             check(startNs < 0) { "start() called twice for ${config.attemptId}" }
             startNs = clock.nowNs()
             startWallMs = clock.wallMs()
-            events += TrialEvent(config.attemptId, 0, EventType.START, 0L, startWallMs, config.startVolume)
+            events += TrialEvent(config.attemptId, 0, EventType.START, 0L, startWallMs, config.startVolume, mapOf(
+                "input_policy" to InputResolution.VERSION,
+                "volume_step" to InputResolution.step(config.condition).toString(),
+            ))
             val partial = AttemptRecord(
                 result = TrialResult(
                     config = config,
@@ -148,7 +152,7 @@ class AttemptRecorder(
 
     fun inputUp(raw: Map<String, String> = emptyMap()) = append(EventType.INPUT_UP, null, raw)
 
-    /** 가상 음량이 바뀐 직후 호출. newValue 는 실제 반영된 값(0~100, 5단위). */
+    /** 가상 음량이 바뀐 직후 호출. newValue 는 실제 반영된 값(0~100, 조건별 1/5단위). */
     fun valueChange(newValue: Int, raw: Map<String, String> = emptyMap()) {
         if (append(EventType.VALUE_CHANGE, newValue, raw)) {
             synchronized(lock) { currentValue = newValue }
@@ -180,7 +184,7 @@ class AttemptRecorder(
                 HciLog.w(TAG, "$type after end ignored (${config.attemptId}) count=$ignoredLateEvents")
                 return false
             }
-            if (value != null && (value !in 0..100 || value % 5 != 0)) {
+            if (value != null && !InputResolution.valid(value, InputResolution.step(config.condition))) {
                 HciLog.e(TAG, "VALUE_CHANGE out of rule: $value (${config.attemptId}) — recorded as-is")
             }
             val event = TrialEvent(config.attemptId, events.size, type, now - startNs, wall, value, raw)

@@ -8,12 +8,12 @@ import kotlin.math.roundToInt
  * 팀원 1의 폰 SliderMath와 같은 규칙입니다. 공통 모듈로 옮길지는 팀 합의 후 결정합니다.
  */
 object WatchSliderMath {
-    fun normalize(percent: Int): Int = (percent.coerceIn(0, 100) / 5f).roundToInt() * 5
+    fun normalize(percent: Int): Int = percent.coerceIn(0, 100)
 
     /** 손잡이 중심 x */
     fun thumbX(percent: Int, left: Float, right: Float): Float = left + (right - left) * (percent / 100f)
 
-    /** 트랙 위 x → 5단위 값 */
+    /** 트랙 위 x → 1단위 정수 값 */
     fun valueAt(x: Float, left: Float, right: Float): Int {
         val frac = ((x - left) / (right - left)).coerceIn(0f, 1f)
         return normalize((frac * 100).roundToInt())
